@@ -110,17 +110,21 @@ included_chats = [
 
 4. **Run**:
    ```bash
-   uv run python main.py
+   uv run findgram
    ```
 
 ### Code Organization
 
 ```
 findgram/
-├── main.py              # Entry point
+├── src/
+│   └── findgram/
+│       └── main.py      # Application entry point
 ├── pyproject.toml       # Project metadata and dependencies
 ├── uv.lock             # Dependency lock file
-└── README.md           # User documentation
+├── README.md           # User documentation
+├── CLAUDE.md           # Developer documentation
+└── LICENSE             # MIT license
 ```
 
 ## Key Differences from SearchGram

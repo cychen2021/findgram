@@ -114,7 +114,7 @@ included_chats = [
 ### Start the bot
 
 ```bash
-uv run python main.py
+uv run findgram
 ```
 
 On first run, you'll be prompted to authenticate each session (account) configured in `config.toml`.
@@ -134,11 +134,14 @@ On first run, you'll be prompted to authenticate each session (account) configur
 
 ```
 findgram/
-├── main.py              # Main application entry point
+├── src/
+│   └── findgram/
+│       └── main.py      # Application entry point
 ├── pyproject.toml       # Project metadata and dependencies
 ├── uv.lock             # Dependency lock file
 ├── README.md           # This file
-└── CLAUDE.md           # Developer documentation
+├── CLAUDE.md           # Developer documentation
+└── LICENSE             # MIT license
 ```
 
 ## Configuration Directory Structure
