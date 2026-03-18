@@ -181,8 +181,7 @@ class MeiliSearchManager:
                 client.health()
                 logger.info("MeiliSearch", "MeiliSearch started successfully")
                 self.client = client
-                self._setup_index()
-                return
+                break
             except Exception as e:
                 if i == max_retries - 1:
                     # Capture process output for debugging
@@ -199,6 +198,9 @@ class MeiliSearchManager:
                         f"Stderr: {stderr_output}"
                     )
                 time.sleep(1)
+
+        # Setup index after connection is established
+        self._setup_index()
 
     def _setup_index(self) -> None:
         """Setup the messages index with proper configuration."""
