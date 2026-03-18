@@ -98,7 +98,7 @@ memory_limit = "512MB"  # Adjust based on your server capacity
 # Define each account you want to search
 [[sessions]]
 name = "personal"           # Friendly name for this account
-telegram_id = 123456789     # Your Telegram user ID
+telegram_id = 123456789     # Your Telegram user ID (for reference only)
 included_chats = [
     -1001234567890,         # Group chat ID (negative for groups)
     987654321,              # Direct chat with user ID
@@ -107,7 +107,7 @@ included_chats = [
 
 [[sessions]]
 name = "work"
-telegram_id = 987654321
+telegram_id = 987654321     # Your Telegram user ID (for reference only)
 included_chats = [
     -1002468135790,
     "@workchannel",         # Channel username
@@ -127,7 +127,9 @@ included_chats = [
 uv run findgram
 ```
 
-On first run, you'll be prompted to authenticate each session (account) configured in `config.toml`.
+On first run, you'll be prompted to authenticate each session (account) configured in `config.toml`. You'll need to provide:
+- Your phone number (with country code, e.g., +1234567890)
+- The verification code sent to your Telegram app
 
 ### Search your messages
 

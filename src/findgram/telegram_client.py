@@ -37,7 +37,8 @@ class SessionManager:
             self.config.app_hash,
         )
 
-        await client.start(phone=str(session_config.telegram_id))
+        # Start the client - will prompt for phone number if not authorized
+        await client.start() # type: ignore
 
         if not await client.is_user_authorized():
             raise RuntimeError(
@@ -52,7 +53,7 @@ class SessionManager:
         """Disconnect all clients."""
         for name, client in self.clients.items():
             logger.info("Session Disconnect", f"Disconnecting session: {name}")
-            await client.disconnect()
+            await client.disconnect() # type: ignore
 
     def get_client(self, session_name: str) -> TelegramClient:
         """Get a client by session name."""
