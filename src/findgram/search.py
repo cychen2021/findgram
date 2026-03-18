@@ -1,13 +1,17 @@
 """MeiliSearch integration for message indexing and searching."""
 
+import os
+import platform
 import shutil
 import subprocess
 import time
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import meilisearch
+from meilisearch.errors import MeilisearchApiError
 from phdkit.log import Logger, LogOutput
 
 from .config import MeiliSearchConfig, get_config_dir
@@ -61,27 +65,56 @@ class MeiliSearchManager:
         logger.info("MeiliSearch", "MeiliSearch binary not found, installing...")
 
         try:
-            # Download and install MeiliSearch
-            install_cmd = "curl -L https://install.meilisearch.com | sh"
-            result = subprocess.run(
-                install_cmd,
-                shell=True,
-                check=True,
-                capture_output=True,
-                text=True,
-                cwd=str(Path.cwd())
-            )
+            # Detect platform and architecture
+            system = platform.system().lower()
+            machine = platform.machine().lower()
+
+            # Determine the correct binary suffix
+            if system == "linux":
+                if machine in ("x86_64", "amd64"):
+                    binary_suffix = "linux-amd64"
+                elif machine in ("aarch64", "arm64"):
+                    binary_suffix = "linux-aarch64"
+                else:
+                    raise RuntimeError(f"Unsupported Linux architecture: {machine}")
+            elif system == "darwin":
+                if machine in ("x86_64", "amd64"):
+                    binary_suffix = "macos-amd64"
+                elif machine in ("arm64", "aarch64"):
+                    binary_suffix = "macos-apple-silicon"
+                else:
+                    raise RuntimeError(f"Unsupported macOS architecture: {machine}")
+            elif system == "windows":
+                if machine in ("x86_64", "amd64"):
+                    binary_suffix = "windows-amd64.exe"
+                else:
+                    raise RuntimeError(f"Unsupported Windows architecture: {machine}")
+            else:
+                raise RuntimeError(f"Unsupported operating system: {system}")
+
+            # Download MeiliSearch from GitHub releases
+            version = "v1.39.0"
+            download_url = f"https://github.com/meilisearch/meilisearch/releases/download/{version}/meilisearch-{binary_suffix}"
+
+            logger.info("MeiliSearch", f"Downloading from {download_url}")
+
+            # Download to local directory
+            download_path = local_meilisearch
+            urllib.request.urlretrieve(download_url, download_path)
+
+            # Make executable (Unix-like systems)
+            if system in ("linux", "darwin"):
+                os.chmod(download_path, 0o755)
 
             logger.info("MeiliSearch", "MeiliSearch installed successfully")
 
-            # The installer places the binary in the current directory
-            if local_meilisearch.exists():
-                return str(local_meilisearch)
+            if download_path.exists():
+                return str(download_path)
             else:
-                raise RuntimeError("MeiliSearch binary not found after installation")
+                raise RuntimeError("MeiliSearch binary not found after download")
 
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Failed to install MeiliSearch: {e.stderr}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to install MeiliSearch: {e}")
 
     def start(self) -> None:
         """Start MeiliSearch if not already running."""
@@ -114,7 +147,7 @@ class MeiliSearchManager:
             str(data_dir),
             "--http-addr",
             self.config.host.replace("http://", ""),
-            "--max-index-size",
+            "--max-indexing-memory",
             self.config.memory_limit,
         ]
 
@@ -131,6 +164,16 @@ class MeiliSearchManager:
         # Wait for MeiliSearch to be ready
         max_retries = 30
         for i in range(max_retries):
+            # Check if process died
+            if self.process and self.process.poll() is not None:
+                stderr_output = self.process.stderr.read() if self.process.stderr else ""
+                stdout_output = self.process.stdout.read() if self.process.stdout else ""
+                raise RuntimeError(
+                    f"MeiliSearch process died with code {self.process.returncode}\n"
+                    f"Stdout: {stdout_output}\n"
+                    f"Stderr: {stderr_output}"
+                )
+
             try:
                 client = meilisearch.Client(
                     self.config.host, self.config.master_key or ""
@@ -142,7 +185,19 @@ class MeiliSearchManager:
                 return
             except Exception as e:
                 if i == max_retries - 1:
-                    raise RuntimeError(f"Failed to start MeiliSearch: {e}")
+                    # Capture process output for debugging
+                    stderr_output = ""
+                    stdout_output = ""
+                    if self.process:
+                        if self.process.stderr:
+                            stderr_output = self.process.stderr.read()
+                        if self.process.stdout:
+                            stdout_output = self.process.stdout.read()
+                    raise RuntimeError(
+                        f"Failed to start MeiliSearch: {e}\n"
+                        f"Stdout: {stdout_output}\n"
+                        f"Stderr: {stderr_output}"
+                    )
                 time.sleep(1)
 
     def _setup_index(self) -> None:
@@ -153,10 +208,12 @@ class MeiliSearchManager:
         try:
             index = self.client.get_index(self.index_name)
             logger.info("Index Setup", f"Using existing index: {self.index_name}")
-        except meilisearch.errors.MeiliSearchApiError:
+        except MeilisearchApiError:
             # Create new index
             logger.info("Index Setup", f"Creating new index: {self.index_name}")
-            self.client.create_index(self.index_name, {"primaryKey": "id"})
+            task = self.client.create_index(self.index_name, {"primaryKey": "id"})
+            # Wait for index creation to complete
+            self.client.wait_for_task(task.task_uid)
             index = self.client.get_index(self.index_name)
 
         # Configure searchable attributes
@@ -209,7 +266,7 @@ class MeiliSearchManager:
         ]
 
         task = index.add_documents(documents)
-        logger.info("Indexing", f"Indexed {len(messages)} messages (task: {task['taskUid']})")
+        logger.info("Indexing", f"Indexed {len(messages)} messages (task: {task.task_uid})")
 
     def search(
         self, query: str, limit: int = 20, filters: dict[str, Any] | None = None
