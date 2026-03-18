@@ -217,15 +217,18 @@ class MeiliSearchManager:
             index = self.client.get_index(self.index_name)
 
         # Configure searchable attributes
-        index.update_searchable_attributes(["text", "sender_name", "chat_title"])
+        task = index.update_searchable_attributes(["text", "sender_name", "chat_title"])
+        self.client.wait_for_task(task.task_uid)
 
         # Configure filterable attributes
-        index.update_filterable_attributes(
+        task = index.update_filterable_attributes(
             ["chat_id", "session_name", "sender_id", "date"]
         )
+        self.client.wait_for_task(task.task_uid)
 
         # Configure sortable attributes
-        index.update_sortable_attributes(["date"])
+        task = index.update_sortable_attributes(["date"])
+        self.client.wait_for_task(task.task_uid)
 
         logger.info("Index Setup", "Index configured successfully")
 
