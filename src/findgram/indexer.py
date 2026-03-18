@@ -56,6 +56,8 @@ class MessageIndexer:
         batch_size = 100
         messages_batch: list[MessageDocument] = []
         total_count = 0
+        already_indexed_count = 0
+        newly_indexed_count = 0
 
         try:
             # Get chat entity to get chat title (works with both IDs and usernames)
@@ -79,6 +81,16 @@ class MessageIndexer:
                 # Only index messages with text (use .message for base compatibility)
                 text_content = message.message if hasattr(message, "message") else None
                 if not text_content:
+                    continue
+
+                total_count += 1
+
+                # Create document ID
+                doc_id = f"{session_config.name}:{numeric_chat_id}:{message.id}"
+
+                # Skip if already indexed
+                if self.search_manager.document_exists(doc_id):
+                    already_indexed_count += 1
                     continue
 
                 # Get sender ID from from_id attribute
@@ -111,7 +123,7 @@ class MessageIndexer:
 
                 # Create document
                 doc = MessageDocument(
-                    id=f"{session_config.name}:{numeric_chat_id}:{message.id}",
+                    id=doc_id,
                     chat_id=numeric_chat_id,
                     message_id=message.id,
                     session_name=session_config.name,
@@ -123,34 +135,33 @@ class MessageIndexer:
                 )
 
                 messages_batch.append(doc)
-                total_count += 1
+                newly_indexed_count += 1
 
                 # Index in batches
                 if len(messages_batch) >= batch_size:
                     self.search_manager.index_messages(messages_batch)
                     logger.info(
-                        "Indexing Batch",
-                        f"Indexed batch of {len(messages_batch)} messages from chat {chat_id}"
+                        "Indexing Progress",
+                        f"Chat {chat_id}: Indexed {newly_indexed_count} new messages [{already_indexed_count} / {total_count} already indexed]"
                     )
                     messages_batch = []
 
             # Index remaining messages
             if messages_batch:
                 self.search_manager.index_messages(messages_batch)
-                logger.info(
-                    "Indexing Batch",
-                    f"Indexed final batch of {len(messages_batch)} messages from chat {chat_id}"
-                )
 
-            logger.info("Indexing Complete", f"Chat {chat_id}: {total_count} messages")
-            return total_count
+            logger.info(
+                "Indexing Complete",
+                f"Chat {chat_id}: Indexed {newly_indexed_count} new messages [{already_indexed_count} / {total_count} already indexed]"
+            )
+            return newly_indexed_count
 
         except Exception as e:
             logger.error("Indexing Error", f"Error indexing chat {chat_id}: {e}")
             # Still index any messages we collected
             if messages_batch:
                 self.search_manager.index_messages(messages_batch)
-            return total_count
+            return newly_indexed_count
 
     async def index_all_sessions(
         self, clients: dict[str, TelegramClient]

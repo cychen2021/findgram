@@ -246,6 +246,18 @@ class MeiliSearchManager:
                 self.process.wait()
             logger.info("MeiliSearch", "MeiliSearch stopped")
 
+    def document_exists(self, document_id: str) -> bool:
+        """Check if a document exists in the index."""
+        if not self.client:
+            raise RuntimeError("MeiliSearch client not initialized")
+
+        try:
+            index = self.client.get_index(self.index_name)
+            index.get_document(document_id)
+            return True
+        except Exception:
+            return False
+
     def index_messages(self, messages: list[MessageDocument]) -> None:
         """Index a batch of messages."""
         if not self.client:
