@@ -1,11 +1,13 @@
 """MeiliSearch integration for message indexing and searching."""
 
+import asyncio
 import os
 import platform
 import shutil
 import subprocess
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -42,6 +44,7 @@ class MeiliSearchManager:
         self.process: subprocess.Popen | None = None
         self.client: meilisearch.Client | None = None
         self.index_name = "messages"
+        self._executor = ThreadPoolExecutor(max_workers=1)
 
     def _ensure_meilisearch_binary(self) -> str:
         """Ensure MeiliSearch binary is available, install if needed.
@@ -236,6 +239,9 @@ class MeiliSearchManager:
 
     def stop(self) -> None:
         """Stop MeiliSearch process if it was started by us."""
+        # Shutdown executor
+        self._executor.shutdown(wait=True)
+
         if self.process:
             logger.info("MeiliSearch", "Stopping MeiliSearch...")
             self.process.terminate()
@@ -251,6 +257,69 @@ class MeiliSearchManager:
         if not self.client:
             raise RuntimeError("MeiliSearch client not initialized")
         return self.client.get_index(self.index_name)
+
+    def refresh_client(self) -> None:
+        """Recreate the MeiliSearch client to avoid connection issues."""
+        logger.info("MeiliSearch", "Recreating client connection...")
+        self.client = meilisearch.Client(self.config.host, self.config.master_key)
+        logger.info("MeiliSearch", "Client connection recreated")
+
+    def get_pending_task_count(self) -> int:
+        """Get the number of pending (enqueued or processing) tasks.
+
+        Returns:
+            Number of pending tasks
+        """
+        if not self.client:
+            raise RuntimeError("MeiliSearch client not initialized")
+
+        try:
+            tasks_response = self.client.get_tasks(
+                {"statuses": ["enqueued", "processing"]}
+            )
+            tasks = getattr(tasks_response, "results", [])
+            return len(tasks)
+        except Exception as e:
+            logger.warning("MeiliSearch", f"Error getting pending tasks: {e}")
+            return 0
+
+    def wait_for_pending_tasks(self, max_wait_seconds: int = 30) -> None:
+        """Wait for all pending indexing tasks to complete.
+
+        Args:
+            max_wait_seconds: Maximum time to wait for each task
+        """
+        if not self.client:
+            raise RuntimeError("MeiliSearch client not initialized")
+
+        try:
+            # Get pending tasks (enqueued or processing)
+            tasks_response = self.client.get_tasks(
+                {"statuses": ["enqueued", "processing"]}
+            )
+            tasks = getattr(tasks_response, "results", [])
+
+            if not tasks:
+                return
+
+            logger.info("MeiliSearch", f"Waiting for {len(tasks)} pending tasks...")
+
+            # Wait for each task with timeout
+            for task in tasks:
+                task_uid = getattr(task, "uid", None)
+                if task_uid:
+                    try:
+                        self.client.wait_for_task(
+                            task_uid, timeout_in_ms=max_wait_seconds * 1000
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "MeiliSearch", f"Timeout waiting for task {task_uid}: {e}"
+                        )
+
+            logger.info("MeiliSearch", "All pending tasks completed")
+        except Exception as e:
+            logger.warning("MeiliSearch", f"Error waiting for tasks: {e}")
 
     def get_document_count(self) -> int:
         """Get the total number of documents in the index."""
@@ -310,26 +379,31 @@ class MeiliSearchManager:
             # If index doesn't exist or error, return empty set
             return set()
 
-    def index_messages(self, messages: list[MessageDocument], index=None) -> None:
-        """Index a batch of messages."""
-        logger.info(
-            "MeiliSearch Debug", f"index_messages called with {len(messages)} messages"
-        )
+    async def index_messages(
+        self, messages: list[MessageDocument], index=None, timeout: int = 30
+    ) -> float:
+        """Index a batch of messages.
 
+        Args:
+            messages: List of messages to index
+            index: Optional pre-fetched index object
+            timeout: Timeout in seconds for the add_documents call
+
+        Returns:
+            Response time in seconds for the add_documents call.
+        """
         if not self.client:
             raise RuntimeError("MeiliSearch client not initialized")
 
         if not messages:
-            return
+            return 0.0
 
+        logger.info("MeiliSearch Debug", "Step 1: Getting index")
         if index is None:
-            logger.info("MeiliSearch Debug", "About to call get_index")
             index = self.client.get_index(self.index_name)
-            logger.info("MeiliSearch Debug", "get_index completed")
-        else:
-            logger.info("MeiliSearch Debug", "Using provided index object")
+        logger.info("MeiliSearch Debug", "Step 2: Index obtained")
 
-        logger.info("MeiliSearch Debug", "Building document list")
+        logger.info("MeiliSearch Debug", "Step 3: Building documents list")
         documents = [
             {
                 "id": msg.id,
@@ -344,21 +418,49 @@ class MeiliSearchManager:
             }
             for msg in messages
         ]
+        logger.info("MeiliSearch Debug", f"Step 4: Built {len(documents)} documents")
+
+        start_time = time.time()
+
+        # Log before the potentially blocking call
         logger.info(
-            "MeiliSearch Debug", f"Document list built with {len(documents)} items"
+            "MeiliSearch",
+            f"Step 5: About to call add_documents with {len(documents)} docs...",
         )
 
-        logger.info("MeiliSearch Debug", "About to call add_documents")
-        task = index.add_documents(documents)
-        logger.info("MeiliSearch Debug", "add_documents call completed")
+        # Run the blocking call in a thread pool to avoid blocking the event loop
+        # Add 10 second timeout to detect hangs
+        loop = asyncio.get_event_loop()
+        try:
+            task = await asyncio.wait_for(
+                loop.run_in_executor(self._executor, index.add_documents, documents),
+                timeout=10.0,
+            )
+            logger.info("MeiliSearch Debug", "Step 6: add_documents returned")
+        except asyncio.TimeoutError:
+            logger.error(
+                "MeiliSearch",
+                f"TIMEOUT: add_documents took > 10s for {len(documents)} docs",
+            )
+
+            # If batch size is 1, log warning about the problematic message
+            if len(documents) == 1:
+                doc = documents[0]
+                logger.warning(
+                    "MeiliSearch",
+                    f"Skipping problematic message: id={doc['id']}, text_len={len(doc['text'])}, chat_id={doc['chat_id']}",
+                )
+
+            raise
+
+        response_time = time.time() - start_time
 
         logger.info(
             "MeiliSearch",
-            f"Submitted batch of {len(documents)} documents to index (task: {task.task_uid})",
+            f"Indexed {len(documents)} docs (task: {task.task_uid}, response: {response_time:.3f}s)",
         )
-        # Log first doc ID for debugging
-        if documents:
-            logger.info("MeiliSearch Debug", f"Sample doc ID: {documents[0]['id']}")
+
+        return response_time
 
     def search(
         self, query: str, limit: int = 20, filters: dict[str, Any] | None = None

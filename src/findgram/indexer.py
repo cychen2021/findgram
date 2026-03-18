@@ -53,20 +53,25 @@ class MessageIndexer:
         """Index all messages from a single chat (supports both numeric IDs and usernames)."""
         logger.info("Indexing Chat", f"[{session_config.name}] Starting chat {chat_id}")
 
-        batch_size = 100
+        batch_size = 400  # Fixed batch size
         messages_batch: list[MessageDocument] = []
-        processed_count = 0
-        indexed_count = 0
+        processed_count = 0  # Number of text messages processed
+        batch_count = 0  # Number of batches submitted
         first_message_id = None
         current_message_id = None
         index = None  # MeiliSearch index object
 
-        # AIMD (Additive Increase Multiplicative Decrease) rate limiting
-        delay = 0.1  # Start with 100ms delay
-        min_delay = 0.1
-        max_delay = 120.0  # Max 2 minutes
-        additive_increase = 0.1  # Decrease by 100ms on success
-        multiplicative_decrease = 2.0  # Double delay on rate limit
+        # AIMD rate limiting for Telegram API
+        telegram_delay = 0.05  # Start with 50ms delay
+        telegram_max_delay = 120.0  # Max 2 minutes for backoff
+        telegram_multiplicative_decrease = 2.0  # Double delay on rate limit
+
+        # AIMD delay for MeiliSearch (to handle disk swapping)
+        meilisearch_delay = 0.0  # Start with no delay
+        meilisearch_min_delay = 0.0
+        meilisearch_max_delay = 1800.0  # Max 30 minutes between batches
+        meilisearch_additive_decrease = 300.0  # Subtract 5 minutes on success
+        meilisearch_multiplicative_increase = 2.0  # Double on timeout
 
         try:
             # Get initial document count for this session
@@ -128,10 +133,10 @@ class MessageIndexer:
 
             while True:
                 try:
-                    # Log before attempting to fetch
-                    if message_count % 100 == 0 and message_count > 0:
+                    # Log every 100 messages to track fetch progress
+                    if message_count % 100 == 0:
                         logger.info(
-                            "Fetch Debug",
+                            "Fetch Progress",
                             f"[{session_config.name}] About to fetch message #{message_count + 1}",
                         )
 
@@ -139,15 +144,13 @@ class MessageIndexer:
                     message = await asyncio.wait_for(
                         message_iterator.__anext__(), timeout=10.0
                     )
+                    consecutive_timeouts = 0  # Reset on success
 
-                    # Log after successful fetch
-                    if message_count % 100 == 0 and message_count > 0:
+                    if message_count % 100 == 0:
                         logger.info(
-                            "Fetch Debug",
+                            "Fetch Progress",
                             f"[{session_config.name}] Successfully fetched message #{message_count + 1}",
                         )
-
-                    consecutive_timeouts = 0  # Reset on success
                 except asyncio.TimeoutError:
                     consecutive_timeouts += 1
                     logger.warning(
@@ -160,12 +163,15 @@ class MessageIndexer:
                             f"[{session_config.name}] Too many consecutive timeouts ({max_consecutive_timeouts}), stopping iteration for {chat_id}",
                         )
                         break
-                    delay = min(max_delay, delay * multiplicative_decrease)
+                    telegram_delay = min(
+                        telegram_max_delay,
+                        telegram_delay * telegram_multiplicative_decrease,
+                    )
                     logger.info(
                         "Rate Limit",
-                        f"[{session_config.name}] Backing off with delay: {delay:.2f}s",
+                        f"[{session_config.name}] Backing off with delay: {telegram_delay:.2f}s",
                     )
-                    await asyncio.sleep(delay)
+                    await asyncio.sleep(telegram_delay)
                     continue
                 except StopAsyncIteration:
                     # Iterator finished normally
@@ -228,53 +234,86 @@ class MessageIndexer:
                     )
 
                     messages_batch.append(doc)
-                    indexed_count += 1
 
                     # Index in batches
                     if len(messages_batch) >= batch_size:
-                        logger.info(
-                            "Batch Debug",
-                            f"[{session_config.name}] About to index batch of {len(messages_batch)} messages",
-                        )
-                        self.search_manager.index_messages(messages_batch, index=index)
-                        logger.info(
-                            "Batch Debug",
-                            f"[{session_config.name}] Batch submitted to MeiliSearch",
-                        )
-                        # Estimate progress using message IDs (they decrease as we go back in time)
-                        if (
-                            first_message_id
-                            and current_message_id
-                            and first_message_id > 0
-                        ):
-                            progress_pct = (
-                                (first_message_id - current_message_id)
-                                / first_message_id
-                            ) * 100
+                        # Recreate client every 50 batches to avoid HTTP connection issues
+                        if batch_count > 0 and batch_count % 50 == 0:
                             logger.info(
-                                "Indexing Progress",
-                                f"[{session_config.name}] Chat {chat_id}: Processed {processed_count} text messages (~{progress_pct:.1f}% complete) - indexed {indexed_count} (delay: {delay:.2f}s)",
+                                "MeiliSearch Refresh",
+                                f"[{session_config.name}] Recreating MeiliSearch client after {batch_count} batches",
                             )
-                        else:
+                            self.search_manager.refresh_client()
+                            index = self.search_manager.get_index()
+
+                        # Wait before indexing if MeiliSearch needs time to catch up
+                        if meilisearch_delay > 0:
                             logger.info(
-                                "Indexing Progress",
-                                f"[{session_config.name}] Chat {chat_id}: Processed {processed_count} text messages - indexed {indexed_count} (delay: {delay:.2f}s)",
+                                "MeiliSearch Delay",
+                                f"[{session_config.name}] Waiting {meilisearch_delay:.1f}s for MeiliSearch to catch up",
                             )
-                        messages_batch = []
+                            await asyncio.sleep(meilisearch_delay)
 
-                        # Apply AIMD delay
-                        logger.info(
-                            "Batch Debug",
-                            f"[{session_config.name}] Sleeping for {delay:.2f}s before next batch",
-                        )
-                        await asyncio.sleep(delay)
-                        logger.info(
-                            "Batch Debug",
-                            f"[{session_config.name}] Sleep completed, continuing iteration",
-                        )
+                        try:
+                            response_time = await self.search_manager.index_messages(
+                                messages_batch, index=index
+                            )
+                            batch_count += 1
+                            messages_batch = []
 
-                        # Additive increase - gradually speed up if no errors
-                        delay = max(min_delay, delay - additive_increase)
+                            # AIMD: Fast response - additively decrease MeiliSearch delay
+                            if response_time < 0.5:  # Fast response (< 500ms)
+                                old_delay = meilisearch_delay
+                                meilisearch_delay = max(
+                                    meilisearch_min_delay,
+                                    meilisearch_delay - meilisearch_additive_decrease,
+                                )
+                                if meilisearch_delay != old_delay and old_delay > 0:
+                                    logger.info(
+                                        "MeiliSearch AIMD",
+                                        f"[{session_config.name}] Fast response ({response_time:.3f}s), delay: {old_delay:.1f}s → {meilisearch_delay:.1f}s",
+                                    )
+
+                            # Log progress after each successful batch
+                            if (
+                                first_message_id
+                                and current_message_id
+                                and first_message_id > 0
+                            ):
+                                progress_pct = (
+                                    (first_message_id - current_message_id)
+                                    / first_message_id
+                                ) * 100
+                                logger.info(
+                                    "Indexing Progress",
+                                    f"[{session_config.name}] Chat {chat_id}: {processed_count} msgs (~{progress_pct:.1f}% complete)",
+                                )
+                            else:
+                                logger.info(
+                                    "Indexing Progress",
+                                    f"[{session_config.name}] Chat {chat_id}: {processed_count} msgs",
+                                )
+
+                            # Apply Telegram delay after each batch
+                            await asyncio.sleep(telegram_delay)
+
+                        except asyncio.TimeoutError:
+                            # AIMD: Timeout - multiplicatively increase MeiliSearch delay
+                            old_delay = meilisearch_delay
+                            if meilisearch_delay == 0:
+                                meilisearch_delay = 0.5  # Bootstrap from 0 to 500ms
+                            else:
+                                meilisearch_delay = min(
+                                    meilisearch_max_delay,
+                                    meilisearch_delay
+                                    * meilisearch_multiplicative_increase,
+                                )
+                            logger.error(
+                                "MeiliSearch AIMD",
+                                f"[{session_config.name}] Timeout, increased delay: {old_delay:.1f}s → {meilisearch_delay:.1f}s",
+                            )
+                            # Skip this batch and continue
+                            messages_batch = []
 
                 except FloodWaitError as e:
                     # Telegram rate limit hit - back off
@@ -285,15 +324,20 @@ class MessageIndexer:
                     )
                     await asyncio.sleep(wait_time)
                     # Multiplicative decrease - slow down significantly
-                    delay = min(max_delay, delay * multiplicative_decrease)
-                    logger.info("Rate Limit", f"Increased delay to {delay:.2f}s")
+                    telegram_delay = min(
+                        telegram_max_delay,
+                        telegram_delay * telegram_multiplicative_decrease,
+                    )
+                    logger.info(
+                        "Rate Limit", f"Increased delay to {telegram_delay:.2f}s"
+                    )
                 except Exception as e:
                     logger.error(
                         "Message Error",
                         f"[{session_config.name}] Error processing message {current_message_id}: {e}",
                     )
                     # Moderate increase on other errors
-                    delay = min(max_delay, delay * 1.5)
+                    telegram_delay = min(telegram_max_delay, telegram_delay * 1.5)
                     continue
 
             logger.info(
@@ -307,20 +351,26 @@ class MessageIndexer:
                     "Indexing Chat",
                     f"[{session_config.name}] Indexing final batch of {len(messages_batch)} messages",
                 )
-                self.search_manager.index_messages(messages_batch, index=index)
+                response_time = await self.search_manager.index_messages(
+                    messages_batch, index=index
+                )
+                logger.info(
+                    "Indexing Chat",
+                    f"[{session_config.name}] Final batch submitted (response: {response_time:.3f}s)",
+                )
 
             # Get final document count to see how many were actually new
             # Note: There may be a delay before MeiliSearch finishes indexing
             await asyncio.sleep(0.5)  # Give MeiliSearch time to process
             final_doc_count = self.search_manager.get_document_count()
             new_docs = final_doc_count - initial_doc_count
-            already_indexed = indexed_count - new_docs
+            already_indexed = processed_count - new_docs
 
             logger.info(
                 "Indexing Complete",
                 f"[{session_config.name}] Chat {chat_id}: Processed {processed_count} text messages - {new_docs} new, {already_indexed} already indexed",
             )
-            return indexed_count
+            return processed_count
 
         except FloodWaitError as e:
             logger.error(
@@ -330,10 +380,12 @@ class MessageIndexer:
             # Still index any messages we collected
             if messages_batch and index is not None:
                 try:
-                    self.search_manager.index_messages(messages_batch, index=index)
+                    _ = await self.search_manager.index_messages(
+                        messages_batch, index=index
+                    )
                 except Exception:
                     pass  # Best effort
-            return indexed_count
+            return processed_count
         except Exception as e:
             logger.error(
                 "Indexing Error",
@@ -345,10 +397,12 @@ class MessageIndexer:
             # Still index any messages we collected
             if messages_batch and index is not None:
                 try:
-                    self.search_manager.index_messages(messages_batch, index=index)
+                    _ = await self.search_manager.index_messages(
+                        messages_batch, index=index
+                    )
                 except Exception:
                     pass  # Best effort
-            return indexed_count
+            return processed_count
 
     async def index_all_sessions(self, clients: dict[str, TelegramClient]) -> None:
         """Index all messages from all sessions."""

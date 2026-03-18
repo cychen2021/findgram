@@ -24,7 +24,7 @@ class SessionConfig:
 class MeiliSearchConfig:
     """MeiliSearch configuration."""
 
-    memory_limit: str = "512MB"
+    memory_limit: str = "4GB"
     host: str = "http://localhost:7700"
     master_key: str | None = None
 
