@@ -52,6 +52,18 @@ def get_config_dir() -> Path:
     return config_dir
 
 
+def get_data_dir() -> Path:
+    """Get the data directory, respecting XDG_DATA_HOME."""
+    xdg_data = os.environ.get("XDG_DATA_HOME")
+    if xdg_data:
+        data_dir = Path(xdg_data) / "findgram"
+    else:
+        data_dir = Path.home() / ".local" / "share" / "findgram"
+
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir
+
+
 def load_config() -> Config:
     """Load configuration from config.toml and secrets.toml."""
     config_dir = get_config_dir()

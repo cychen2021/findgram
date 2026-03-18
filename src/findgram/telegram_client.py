@@ -6,7 +6,7 @@ from phdkit.log import Logger, LogOutput
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-from .config import Config, SessionConfig, get_config_dir
+from .config import Config, SessionConfig, get_data_dir
 
 logger = Logger(__name__, outputs=[LogOutput.stdout()])
 
@@ -17,7 +17,7 @@ class SessionManager:
     def __init__(self, config: Config):
         self.config = config
         self.clients: dict[str, TelegramClient] = {}
-        self.session_dir = get_config_dir() / "sessions"
+        self.session_dir = get_data_dir() / "sessions"
         self.session_dir.mkdir(parents=True, exist_ok=True)
 
     async def initialize_sessions(self) -> None:
@@ -71,7 +71,7 @@ class BotClient:
     def __init__(self, config: Config):
         self.config = config
         self.client: TelegramClient | None = None
-        self.session_dir = get_config_dir() / "sessions"
+        self.session_dir = get_data_dir() / "sessions"
         self.session_dir.mkdir(parents=True, exist_ok=True)
 
     async def start(self) -> None:

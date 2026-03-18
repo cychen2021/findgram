@@ -49,10 +49,15 @@ findgram is a modernized alternative to [SearchGram](https://github.com/tgbot-co
 
 ### File Locations
 
-Configuration files are stored in XDG_CONFIG_HOME (typically `~/.config/findgram/`):
+**Configuration files** (stored in XDG_CONFIG_HOME, typically `~/.config/findgram/`):
 
 - `secrets.toml` - Sensitive credentials
 - `config.toml` - Application configuration
+
+**Data files** (stored in XDG_DATA_HOME, typically `~/.local/share/findgram/`):
+
+- `meilisearch_data/` - MeiliSearch database with indexed messages
+- `sessions/` - Telegram session files
 
 ### Configuration Schema
 
@@ -201,7 +206,7 @@ Update config.toml with MeiliSearch connection details.
 
 ### Session Files
 
-- Session files stored in `~/.config/findgram/sessions/`
+- Session files stored in `~/.local/share/findgram/sessions/`
 - Delete session files to re-authenticate an account
 
 ### Search Issues

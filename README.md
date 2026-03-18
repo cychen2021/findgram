@@ -69,6 +69,8 @@ curl -L https://install.meilisearch.com | sh
 
 Configuration files are stored in `~/.config/findgram/` (or your XDG_CONFIG_HOME directory).
 
+Data files (sessions, search database) are stored in `~/.local/share/findgram/` (or your XDG_DATA_HOME directory).
+
 ### 1. Create secrets.toml
 
 Create `~/.config/findgram/secrets.toml` with your bot token:
@@ -157,15 +159,23 @@ findgram/
 └── LICENSE                      # MIT license
 ```
 
-## Configuration Directory Structure
+## Directory Structure
 
+**Configuration** (`~/.config/findgram/`):
 ```
 ~/.config/findgram/
 ├── secrets.toml         # Bot token and sensitive credentials
-├── config.toml          # Application configuration
-└── sessions/            # Session files (auto-generated)
-    ├── personal.session
-    └── work.session
+└── config.toml          # Application configuration
+```
+
+**Data** (`~/.local/share/findgram/`):
+```
+~/.local/share/findgram/
+├── sessions/            # Telegram session files (auto-generated)
+│   ├── personal.session
+│   ├── work.session
+│   └── bot.session
+└── meilisearch_data/    # MeiliSearch database with indexed messages
 ```
 
 ## Getting Telegram Credentials
@@ -196,7 +206,7 @@ findgram/
 
 Delete the session file and restart. The bot will prompt you to re-authenticate:
 ```bash
-rm ~/.config/findgram/sessions/*.session
+rm ~/.local/share/findgram/sessions/*.session
 ```
 
 ### "MeiliSearch connection error"

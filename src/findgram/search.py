@@ -14,7 +14,7 @@ import meilisearch
 from meilisearch.errors import MeilisearchApiError
 from phdkit.log import Logger, LogOutput
 
-from .config import MeiliSearchConfig, get_config_dir
+from .config import MeiliSearchConfig, get_data_dir
 
 logger = Logger(__name__, outputs=[LogOutput.stdout()])
 
@@ -138,7 +138,7 @@ class MeiliSearchManager:
         logger.info("MeiliSearch", "Starting MeiliSearch...")
 
         # MeiliSearch data directory
-        data_dir = get_config_dir() / "meilisearch_data"
+        data_dir = get_data_dir() / "meilisearch_data"
         data_dir.mkdir(parents=True, exist_ok=True)
 
         cmd = [
