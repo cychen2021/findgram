@@ -143,12 +143,18 @@ On first run, you'll be prompted to authenticate each session (account) configur
 findgram/
 ├── src/
 │   └── findgram/
-│       └── main.py      # Application entry point
-├── pyproject.toml       # Project metadata and dependencies
-├── uv.lock             # Dependency lock file
-├── README.md           # This file
-├── CLAUDE.md           # Developer documentation
-└── LICENSE             # MIT license
+│       ├── __init__.py          # Package initialization
+│       ├── main.py              # Application entry point
+│       ├── config.py            # Configuration management
+│       ├── telegram_client.py   # Telegram client wrapper
+│       ├── bot.py               # Bot interface
+│       ├── indexer.py           # Message indexing
+│       └── search.py            # Search functionality
+├── pyproject.toml               # Project metadata and dependencies
+├── uv.lock                      # Dependency lock file
+├── README.md                    # This file
+├── CLAUDE.md                    # Developer documentation
+└── LICENSE                      # MIT license
 ```
 
 ## Configuration Directory Structure
