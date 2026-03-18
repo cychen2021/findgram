@@ -235,8 +235,8 @@ class MessageIndexer:
 
                     messages_batch.append(doc)
 
-                    # Index in batches
-                    if len(messages_batch) >= batch_size:
+                    # Index in batches (with retry on timeout)
+                    while len(messages_batch) >= batch_size:
                         # Recreate client every 50 batches to avoid HTTP connection issues
                         if batch_count > 0 and batch_count % 50 == 0:
                             logger.info(
@@ -259,7 +259,7 @@ class MessageIndexer:
                                 messages_batch, index=index
                             )
                             batch_count += 1
-                            messages_batch = []
+                            messages_batch = []  # Clear on success
 
                             # AIMD: Fast response - additively decrease MeiliSearch delay
                             if response_time < 0.5:  # Fast response (< 500ms)
@@ -297,11 +297,14 @@ class MessageIndexer:
                             # Apply Telegram delay after each batch
                             await asyncio.sleep(telegram_delay)
 
+                            # Break out of retry loop on success
+                            break
+
                         except asyncio.TimeoutError:
                             # AIMD: Timeout - multiplicatively increase MeiliSearch delay
                             old_delay = meilisearch_delay
                             if meilisearch_delay == 0:
-                                meilisearch_delay = 0.5  # Bootstrap from 0 to 500ms
+                                meilisearch_delay = 10.0  # Bootstrap from 0 to 10s
                             else:
                                 meilisearch_delay = min(
                                     meilisearch_max_delay,
@@ -310,10 +313,9 @@ class MessageIndexer:
                                 )
                             logger.error(
                                 "MeiliSearch AIMD",
-                                f"[{session_config.name}] Timeout, increased delay: {old_delay:.1f}s → {meilisearch_delay:.1f}s",
+                                f"[{session_config.name}] Timeout, increased delay: {old_delay:.1f}s → {meilisearch_delay:.1f}s, will retry batch",
                             )
-                            # Skip this batch and continue
-                            messages_batch = []
+                            # Keep messages_batch and retry with increased delay
 
                 except FloodWaitError as e:
                     # Telegram rate limit hit - back off
