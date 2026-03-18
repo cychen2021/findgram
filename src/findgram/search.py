@@ -1,5 +1,6 @@
 """MeiliSearch integration for message indexing and searching."""
 
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -38,6 +39,50 @@ class MeiliSearchManager:
         self.client: meilisearch.Client | None = None
         self.index_name = "messages"
 
+    def _ensure_meilisearch_binary(self) -> str:
+        """Ensure MeiliSearch binary is available, install if needed.
+
+        Returns:
+            Path to the meilisearch binary
+        """
+        # Check if meilisearch is in PATH
+        meilisearch_path = shutil.which("meilisearch")
+        if meilisearch_path:
+            logger.info("MeiliSearch", f"Found meilisearch in PATH: {meilisearch_path}")
+            return "meilisearch"
+
+        # Check if ./meilisearch exists in current directory
+        local_meilisearch = Path.cwd() / "meilisearch"
+        if local_meilisearch.exists() and local_meilisearch.is_file():
+            logger.info("MeiliSearch", f"Found local meilisearch: {local_meilisearch}")
+            return str(local_meilisearch)
+
+        # Not found, need to install
+        logger.info("MeiliSearch", "MeiliSearch binary not found, installing...")
+
+        try:
+            # Download and install MeiliSearch
+            install_cmd = "curl -L https://install.meilisearch.com | sh"
+            result = subprocess.run(
+                install_cmd,
+                shell=True,
+                check=True,
+                capture_output=True,
+                text=True,
+                cwd=str(Path.cwd())
+            )
+
+            logger.info("MeiliSearch", "MeiliSearch installed successfully")
+
+            # The installer places the binary in the current directory
+            if local_meilisearch.exists():
+                return str(local_meilisearch)
+            else:
+                raise RuntimeError("MeiliSearch binary not found after installation")
+
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"Failed to install MeiliSearch: {e.stderr}")
+
     def start(self) -> None:
         """Start MeiliSearch if not already running."""
         # Check if already running
@@ -53,6 +98,9 @@ class MeiliSearchManager:
         except Exception:
             pass
 
+        # Ensure MeiliSearch binary is available
+        meilisearch_binary = self._ensure_meilisearch_binary()
+
         # Start MeiliSearch process
         logger.info("MeiliSearch", "Starting MeiliSearch...")
 
@@ -61,7 +109,7 @@ class MeiliSearchManager:
         data_dir.mkdir(parents=True, exist_ok=True)
 
         cmd = [
-            "meilisearch",
+            meilisearch_binary,
             "--db-path",
             str(data_dir),
             "--http-addr",

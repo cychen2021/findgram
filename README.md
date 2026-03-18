@@ -23,7 +23,7 @@ findgram is inspired by [SearchGram](https://github.com/tgbot-collection/SearchG
 ## Requirements
 
 - Python 3.13 or higher
-- [MeiliSearch](https://www.meilisearch.com/) (search engine)
+- [MeiliSearch](https://www.meilisearch.com/) (automatically installed if not found)
 - Telegram account(s) to search
 - Telegram Bot Token from [@BotFather](https://t.me/botfather)
 - Telegram API credentials (APP_ID and APP_HASH) from [my.telegram.org](https://my.telegram.org)
@@ -49,15 +49,21 @@ cd findgram
 uv sync
 ```
 
-### 4. Install and start MeiliSearch
+### 4. MeiliSearch Setup
+
+MeiliSearch will be automatically downloaded and installed when you first run findgram if it's not already available in your PATH or current directory.
+
+Alternatively, you can manually install and run MeiliSearch:
 
 ```bash
-# Download and install
+# Manual installation (optional)
 curl -L https://install.meilisearch.com | sh
 
-# Run MeiliSearch
+# Run MeiliSearch manually (optional)
 ./meilisearch --master-key="your-master-key-here"
 ```
+
+**Note**: If you don't manually run MeiliSearch, findgram will start it automatically with the configured settings.
 
 ## Configuration
 
