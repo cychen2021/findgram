@@ -1,9 +1,11 @@
 """Message fetching and indexing logic."""
 
 import asyncio
+import time
 
 from phdkit.log import Logger, LogOutput
 from telethon import TelegramClient
+from telethon.errors import FloodWaitError
 from telethon.tl.types import Message
 
 from .config import Config, SessionConfig
@@ -50,23 +52,25 @@ class MessageIndexer:
         self, client: TelegramClient, session_config: SessionConfig, chat_id: int | str
     ) -> int:
         """Index all messages from a single chat (supports both numeric IDs and usernames)."""
-        logger.info(
-            "Indexing Chat", f"Chat {chat_id} for session {session_config.name}"
-        )
+        logger.info("Indexing Chat", f"[{session_config.name}] Starting chat {chat_id}")
 
         batch_size = 100
         messages_batch: list[MessageDocument] = []
         processed_count = 0
-        already_indexed_count = 0
-        newly_indexed_count = 0
+        indexed_count = 0
         first_message_id = None
         current_message_id = None
 
+        # AIMD (Additive Increase Multiplicative Decrease) rate limiting
+        delay = 0.05  # Start with 50ms delay
+        min_delay = 0.05
+        max_delay = 5.0
+        additive_increase = 0.01  # Add 10ms on success
+        multiplicative_decrease = 2.0  # Double delay on rate limit
+
         try:
-            # Get all indexed document IDs once at the start
-            logger.info("Indexing Chat", f"Fetching already indexed messages...")
-            indexed_ids = self.search_manager.get_indexed_document_ids()
-            logger.info("Indexing Chat", f"Found {len(indexed_ids)} indexed messages")
+            # Get initial document count for this session
+            initial_doc_count = self.search_manager.get_document_count()
 
             # Get chat entity to get chat title (works with both IDs and usernames)
             entity = await client.get_entity(chat_id)
@@ -85,110 +89,133 @@ class MessageIndexer:
             numeric_chat_id: int = entity.id
 
             async for message in client.iter_messages(entity):
-                # Track message IDs for progress estimation (newest to oldest)
-                if first_message_id is None:
-                    first_message_id = message.id
-                current_message_id = message.id
+                try:
+                    # Track message IDs for progress estimation (newest to oldest)
+                    if first_message_id is None:
+                        first_message_id = message.id
+                    current_message_id = message.id
 
-                if not isinstance(message, Message):
-                    continue
+                    if not isinstance(message, Message):
+                        continue
 
-                # Only index messages with text (use .message for base compatibility)
-                text_content = message.message if hasattr(message, "message") else None
-                if not text_content:
-                    continue
+                    # Only index messages with text (use .message for base compatibility)
+                    text_content = (
+                        message.message if hasattr(message, "message") else None
+                    )
+                    if not text_content:
+                        continue
 
-                processed_count += 1
+                    processed_count += 1
 
-                # Create document ID
-                doc_id = f"{session_config.name}:{numeric_chat_id}:{message.id}"
+                    # Create document ID
+                    doc_id = f"{session_config.name}:{numeric_chat_id}:{message.id}"
 
-                # Skip if already indexed (check in-memory set)
-                if doc_id in indexed_ids:
-                    already_indexed_count += 1
-                    continue
+                    # Get sender ID from from_id attribute (fast, no API call)
+                    sender_id = None
+                    if hasattr(message, "from_id") and message.from_id:
+                        # from_id is a Peer object (PeerUser, PeerChat, PeerChannel)
+                        sender_id = (
+                            getattr(message.from_id, "user_id", None)
+                            or getattr(message.from_id, "channel_id", None)
+                            or getattr(message.from_id, "chat_id", None)
+                        )
 
-                # Get sender ID from from_id attribute
-                sender_id = None
-                if hasattr(message, "from_id") and message.from_id:
-                    # from_id is a Peer object (PeerUser, PeerChat, PeerChannel)
-                    sender_id = (
-                        getattr(message.from_id, "user_id", None)
-                        or getattr(message.from_id, "channel_id", None)
-                        or getattr(message.from_id, "chat_id", None)
+                    # Skip fetching sender name - it can be slow and cause rate limiting
+                    # We already have sender_id which is more reliable
+                    sender_name = None
+
+                    # Create document
+                    doc = MessageDocument(
+                        id=doc_id,
+                        chat_id=numeric_chat_id,
+                        message_id=message.id,
+                        session_name=session_config.name,
+                        text=text_content,
+                        sender_id=sender_id,
+                        sender_name=sender_name,
+                        date=int(message.date.timestamp()) if message.date else 0,
+                        chat_title=chat_title,
                     )
 
-                # Get sender name
-                sender_name = None
-                try:
-                    # Use the patched get_sender method if available
-                    if hasattr(message, "get_sender"):
-                        sender = await message.get_sender()  # type: ignore
-                        if sender:
-                            first_name = getattr(sender, "first_name", None)
-                            if first_name:
-                                last_name = getattr(sender, "last_name", None)
-                                if last_name:
-                                    sender_name = f"{first_name} {last_name}"
-                                else:
-                                    sender_name = first_name
-                            elif hasattr(sender, "title"):
-                                sender_name = sender.title
-                except Exception:
-                    # Sender might not be accessible
-                    pass
+                    messages_batch.append(doc)
+                    indexed_count += 1
 
-                # Create document
-                doc = MessageDocument(
-                    id=doc_id,
-                    chat_id=numeric_chat_id,
-                    message_id=message.id,
-                    session_name=session_config.name,
-                    text=text_content,
-                    sender_id=sender_id,
-                    sender_name=sender_name,
-                    date=int(message.date.timestamp()) if message.date else 0,
-                    chat_title=chat_title,
-                )
+                    # Index in batches
+                    if len(messages_batch) >= batch_size:
+                        self.search_manager.index_messages(messages_batch)
+                        # Estimate progress using message IDs (they decrease as we go back in time)
+                        if (
+                            first_message_id
+                            and current_message_id
+                            and first_message_id > 0
+                        ):
+                            progress_pct = (
+                                (first_message_id - current_message_id)
+                                / first_message_id
+                            ) * 100
+                            logger.info(
+                                "Indexing Progress",
+                                f"[{session_config.name}] Chat {chat_id}: Processed {processed_count} text messages (~{progress_pct:.1f}% complete) - indexed {indexed_count} (delay: {delay:.2f}s)",
+                            )
+                        else:
+                            logger.info(
+                                "Indexing Progress",
+                                f"[{session_config.name}] Chat {chat_id}: Processed {processed_count} text messages - indexed {indexed_count} (delay: {delay:.2f}s)",
+                            )
+                        messages_batch = []
 
-                messages_batch.append(doc)
-                newly_indexed_count += 1
+                        # Apply AIMD delay
+                        await asyncio.sleep(delay)
 
-                # Index in batches
-                if len(messages_batch) >= batch_size:
-                    self.search_manager.index_messages(messages_batch)
-                    # Estimate progress using message IDs (they decrease as we go back in time)
-                    if first_message_id and current_message_id and first_message_id > 0:
-                        progress_pct = (
-                            (first_message_id - current_message_id) / first_message_id
-                        ) * 100
-                        logger.info(
-                            "Indexing Progress",
-                            f"Chat {chat_id}: Processed {processed_count} messages (~{progress_pct:.1f}% complete) - {newly_indexed_count} new, {already_indexed_count} skipped",
-                        )
-                    else:
-                        logger.info(
-                            "Indexing Progress",
-                            f"Chat {chat_id}: Processed {processed_count} messages - {newly_indexed_count} new, {already_indexed_count} skipped",
-                        )
-                    messages_batch = []
+                        # Additive increase - gradually speed up if no errors
+                        delay = max(min_delay, delay - additive_increase)
+
+                except FloodWaitError as e:
+                    # Telegram rate limit hit - back off
+                    wait_time = e.seconds
+                    logger.warning(
+                        "Rate Limit",
+                        f"[{session_config.name}] FloodWaitError: waiting {wait_time}s",
+                    )
+                    await asyncio.sleep(wait_time)
+                    # Multiplicative decrease - slow down significantly
+                    delay = min(max_delay, delay * multiplicative_decrease)
+                    logger.info("Rate Limit", f"Increased delay to {delay:.2f}s")
+                except Exception as e:
+                    logger.error(
+                        "Message Error",
+                        f"[{session_config.name}] Error processing message {current_message_id}: {e}",
+                    )
+                    # Moderate increase on other errors
+                    delay = min(max_delay, delay * 1.5)
+                    continue
 
             # Index remaining messages
             if messages_batch:
                 self.search_manager.index_messages(messages_batch)
 
+            # Get final document count to see how many were actually new
+            # Note: There may be a delay before MeiliSearch finishes indexing
+            await asyncio.sleep(0.5)  # Give MeiliSearch time to process
+            final_doc_count = self.search_manager.get_document_count()
+            new_docs = final_doc_count - initial_doc_count
+            already_indexed = indexed_count - new_docs
+
             logger.info(
                 "Indexing Complete",
-                f"Chat {chat_id}: Processed {processed_count} messages total ({newly_indexed_count} new, {already_indexed_count} skipped)",
+                f"[{session_config.name}] Chat {chat_id}: Processed {processed_count} text messages - {new_docs} new, {already_indexed} already indexed",
             )
-            return newly_indexed_count
+            return indexed_count
 
         except Exception as e:
-            logger.error("Indexing Error", f"Error indexing chat {chat_id}: {e}")
+            logger.error(
+                "Indexing Error",
+                f"[{session_config.name}] Error indexing chat {chat_id}: {e}",
+            )
             # Still index any messages we collected
             if messages_batch:
                 self.search_manager.index_messages(messages_batch)
-            return newly_indexed_count
+            return indexed_count
 
     async def index_all_sessions(self, clients: dict[str, TelegramClient]) -> None:
         """Index all messages from all sessions."""

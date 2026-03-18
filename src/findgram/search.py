@@ -246,6 +246,18 @@ class MeiliSearchManager:
                 self.process.wait()
             logger.info("MeiliSearch", "MeiliSearch stopped")
 
+    def get_document_count(self) -> int:
+        """Get the total number of documents in the index."""
+        if not self.client:
+            raise RuntimeError("MeiliSearch client not initialized")
+
+        try:
+            index = self.client.get_index(self.index_name)
+            stats = index.get_stats()
+            return getattr(stats, "numberOfDocuments", 0) if stats else 0
+        except Exception:
+            return 0
+
     def get_indexed_document_ids(self) -> set[str]:
         """Get all document IDs that are already indexed."""
         if not self.client:
@@ -253,17 +265,23 @@ class MeiliSearchManager:
 
         try:
             index = self.client.get_index(self.index_name)
+            stats = index.get_stats()
+            total_docs = getattr(stats, "numberOfDocuments", 0) if stats else 0
+            logger.info("MeiliSearch Stats", f"Index has {total_docs} total documents")
+
             # Fetch all document IDs in batches
             doc_ids = set()
             offset = 0
             limit = 1000
 
+            batch_count = 0
             while True:
                 results = index.get_documents(
                     {"limit": limit, "offset": offset, "fields": ["id"]}
                 )
                 if not results.results:
                     break
+                batch_count += 1
                 # results.results is a list of dicts
                 for doc in results.results:
                     if isinstance(doc, dict) and "id" in doc:
@@ -272,8 +290,17 @@ class MeiliSearchManager:
                 if len(results.results) < limit:
                     break
 
+            logger.info(
+                "MeiliSearch IDs",
+                f"Fetched {len(doc_ids)} document IDs in {batch_count} batches",
+            )
+            # Log a few sample IDs
+            if doc_ids:
+                sample_ids = list(doc_ids)[:3]
+                logger.info("MeiliSearch Debug", f"Sample IDs: {sample_ids}")
             return doc_ids
-        except Exception:
+        except Exception as e:
+            logger.error("MeiliSearch Error", f"Failed to fetch indexed IDs: {e}")
             # If index doesn't exist or error, return empty set
             return set()
 
@@ -301,7 +328,14 @@ class MeiliSearchManager:
             for msg in messages
         ]
 
-        index.add_documents(documents)
+        task = index.add_documents(documents)
+        logger.info(
+            "MeiliSearch",
+            f"Submitted batch of {len(documents)} documents to index (task: {task.task_uid})",
+        )
+        # Log first doc ID for debugging
+        if documents:
+            logger.info("MeiliSearch Debug", f"Sample doc ID: {documents[0]['id']}")
 
     def search(
         self, query: str, limit: int = 20, filters: dict[str, Any] | None = None

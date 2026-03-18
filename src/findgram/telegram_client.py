@@ -89,14 +89,14 @@ class BotClient:
             self.config.app_hash,
         )
 
-        await self.client.start(bot_token=self.config.app_token) # type: ignore
+        await self.client.start(bot_token=self.config.app_token)  # type: ignore
         logger.info("Bot Client", "Bot client started successfully")
 
     async def stop(self) -> None:
         """Stop the bot client."""
         if self.client:
             logger.info("Bot Client", "Stopping bot client...")
-            await self.client.disconnect() # type: ignore
+            await self.client.disconnect()  # type: ignore
 
     def get_client(self) -> TelegramClient:
         """Get the bot client."""
