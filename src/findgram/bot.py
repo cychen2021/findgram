@@ -49,9 +49,7 @@ class SearchBot:
             if query:
                 await self._handle_search(event, query)
 
-    async def _handle_search(
-        self, event: events.NewMessage.Event, query: str
-    ) -> None:
+    async def _handle_search(self, event: events.NewMessage.Event, query: str) -> None:
         """Handle a search query."""
         logger.info("Search", f"Query: {query}")
 

@@ -38,7 +38,7 @@ class SessionManager:
         )
 
         # Start the client - will prompt for phone number if not authorized
-        await client.start() # type: ignore
+        await client.start()  # type: ignore
 
         if not await client.is_user_authorized():
             raise RuntimeError(
@@ -47,13 +47,15 @@ class SessionManager:
             )
 
         self.clients[session_config.name] = client
-        logger.info("Session Init", f"Session {session_config.name} initialized successfully")
+        logger.info(
+            "Session Init", f"Session {session_config.name} initialized successfully"
+        )
 
     async def disconnect_all(self) -> None:
         """Disconnect all clients."""
         for name, client in self.clients.items():
             logger.info("Session Disconnect", f"Disconnecting session: {name}")
-            await client.disconnect() # type: ignore
+            await client.disconnect()  # type: ignore
 
     def get_client(self, session_name: str) -> TelegramClient:
         """Get a client by session name."""
@@ -87,14 +89,14 @@ class BotClient:
             self.config.app_hash,
         )
 
-        await self.client.start(bot_token=self.config.app_token)
+        await self.client.start(bot_token=self.config.app_token) # type: ignore
         logger.info("Bot Client", "Bot client started successfully")
 
     async def stop(self) -> None:
         """Stop the bot client."""
         if self.client:
             logger.info("Bot Client", "Stopping bot client...")
-            await self.client.disconnect()
+            await self.client.disconnect() # type: ignore
 
     def get_client(self) -> TelegramClient:
         """Get the bot client."""

@@ -1,7 +1,6 @@
 """Message fetching and indexing logic."""
 
 import asyncio
-from datetime import datetime
 
 from phdkit.log import Logger, LogOutput
 from telethon import TelegramClient
@@ -39,32 +38,43 @@ class MessageIndexer:
             except Exception as e:
                 logger.error(
                     "Indexing Error",
-                    f"Error indexing chat {chat_id} in session {session_config.name}: {e}"
+                    f"Error indexing chat {chat_id} in session {session_config.name}: {e}",
                 )
 
         logger.info(
             "Indexing",
-            f"Finished indexing session {session_config.name}: {total_indexed} messages"
+            f"Finished indexing session {session_config.name}: {total_indexed} messages",
         )
 
     async def _index_chat(
         self, client: TelegramClient, session_config: SessionConfig, chat_id: int | str
     ) -> int:
         """Index all messages from a single chat (supports both numeric IDs and usernames)."""
-        logger.info("Indexing Chat", f"Chat {chat_id} for session {session_config.name}")
+        logger.info(
+            "Indexing Chat", f"Chat {chat_id} for session {session_config.name}"
+        )
 
         batch_size = 100
         messages_batch: list[MessageDocument] = []
-        total_count = 0
+        processed_count = 0
         already_indexed_count = 0
         newly_indexed_count = 0
+        first_message_id = None
+        current_message_id = None
 
         try:
+            # Get all indexed document IDs once at the start
+            logger.info("Indexing Chat", f"Fetching already indexed messages...")
+            indexed_ids = self.search_manager.get_indexed_document_ids()
+            logger.info("Indexing Chat", f"Found {len(indexed_ids)} indexed messages")
+
             # Get chat entity to get chat title (works with both IDs and usernames)
             entity = await client.get_entity(chat_id)
 
             # get_entity can return a list if multiple inputs given, but we pass single value
-            assert not isinstance(entity, list), "Expected single entity from get_entity"
+            assert not isinstance(entity, list), (
+                "Expected single entity from get_entity"
+            )
 
             chat_title = getattr(entity, "title", None) or getattr(
                 entity, "first_name", None
@@ -75,6 +85,11 @@ class MessageIndexer:
             numeric_chat_id: int = entity.id
 
             async for message in client.iter_messages(entity):
+                # Track message IDs for progress estimation (newest to oldest)
+                if first_message_id is None:
+                    first_message_id = message.id
+                current_message_id = message.id
+
                 if not isinstance(message, Message):
                     continue
 
@@ -83,13 +98,13 @@ class MessageIndexer:
                 if not text_content:
                     continue
 
-                total_count += 1
+                processed_count += 1
 
                 # Create document ID
                 doc_id = f"{session_config.name}:{numeric_chat_id}:{message.id}"
 
-                # Skip if already indexed
-                if self.search_manager.document_exists(doc_id):
+                # Skip if already indexed (check in-memory set)
+                if doc_id in indexed_ids:
                     already_indexed_count += 1
                     continue
 
@@ -97,16 +112,18 @@ class MessageIndexer:
                 sender_id = None
                 if hasattr(message, "from_id") and message.from_id:
                     # from_id is a Peer object (PeerUser, PeerChat, PeerChannel)
-                    sender_id = getattr(message.from_id, "user_id", None) or getattr(
-                        message.from_id, "channel_id", None
-                    ) or getattr(message.from_id, "chat_id", None)
+                    sender_id = (
+                        getattr(message.from_id, "user_id", None)
+                        or getattr(message.from_id, "channel_id", None)
+                        or getattr(message.from_id, "chat_id", None)
+                    )
 
                 # Get sender name
                 sender_name = None
                 try:
                     # Use the patched get_sender method if available
                     if hasattr(message, "get_sender"):
-                        sender = await message.get_sender() # type: ignore
+                        sender = await message.get_sender()  # type: ignore
                         if sender:
                             first_name = getattr(sender, "first_name", None)
                             if first_name:
@@ -140,10 +157,20 @@ class MessageIndexer:
                 # Index in batches
                 if len(messages_batch) >= batch_size:
                     self.search_manager.index_messages(messages_batch)
-                    logger.info(
-                        "Indexing Progress",
-                        f"Chat {chat_id}: Indexed {newly_indexed_count} new messages [{already_indexed_count} / {total_count} already indexed]"
-                    )
+                    # Estimate progress using message IDs (they decrease as we go back in time)
+                    if first_message_id and current_message_id and first_message_id > 0:
+                        progress_pct = (
+                            (first_message_id - current_message_id) / first_message_id
+                        ) * 100
+                        logger.info(
+                            "Indexing Progress",
+                            f"Chat {chat_id}: Processed {processed_count} messages (~{progress_pct:.1f}% complete) - {newly_indexed_count} new, {already_indexed_count} skipped",
+                        )
+                    else:
+                        logger.info(
+                            "Indexing Progress",
+                            f"Chat {chat_id}: Processed {processed_count} messages - {newly_indexed_count} new, {already_indexed_count} skipped",
+                        )
                     messages_batch = []
 
             # Index remaining messages
@@ -152,7 +179,7 @@ class MessageIndexer:
 
             logger.info(
                 "Indexing Complete",
-                f"Chat {chat_id}: Indexed {newly_indexed_count} new messages [{already_indexed_count} / {total_count} already indexed]"
+                f"Chat {chat_id}: Processed {processed_count} messages total ({newly_indexed_count} new, {already_indexed_count} skipped)",
             )
             return newly_indexed_count
 
@@ -163,9 +190,7 @@ class MessageIndexer:
                 self.search_manager.index_messages(messages_batch)
             return newly_indexed_count
 
-    async def index_all_sessions(
-        self, clients: dict[str, TelegramClient]
-    ) -> None:
+    async def index_all_sessions(self, clients: dict[str, TelegramClient]) -> None:
         """Index all messages from all sessions."""
         logger.info("Indexing All", "Starting full indexing of all sessions...")
 
@@ -173,7 +198,10 @@ class MessageIndexer:
         for session_config in self.config.sessions:
             client = clients.get(session_config.name)
             if not client:
-                logger.error("Session Error", f"Client not found for session: {session_config.name}")
+                logger.error(
+                    "Session Error",
+                    f"Client not found for session: {session_config.name}",
+                )
                 continue
 
             tasks.append(self.index_session(client, session_config))

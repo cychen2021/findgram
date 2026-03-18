@@ -120,9 +120,7 @@ class MeiliSearchManager:
         """Start MeiliSearch if not already running."""
         # Check if already running
         try:
-            client = meilisearch.Client(
-                self.config.host, self.config.master_key
-            )
+            client = meilisearch.Client(self.config.host, self.config.master_key)
             client.health()
             logger.info("MeiliSearch", "MeiliSearch is already running")
             self.client = client
@@ -166,8 +164,12 @@ class MeiliSearchManager:
         for i in range(max_retries):
             # Check if process died
             if self.process and self.process.poll() is not None:
-                stderr_output = self.process.stderr.read() if self.process.stderr else ""
-                stdout_output = self.process.stdout.read() if self.process.stdout else ""
+                stderr_output = (
+                    self.process.stderr.read() if self.process.stderr else ""
+                )
+                stdout_output = (
+                    self.process.stdout.read() if self.process.stdout else ""
+                )
                 raise RuntimeError(
                     f"MeiliSearch process died with code {self.process.returncode}\n"
                     f"Stdout: {stdout_output}\n"
@@ -175,9 +177,7 @@ class MeiliSearchManager:
                 )
 
             try:
-                client = meilisearch.Client(
-                    self.config.host, self.config.master_key
-                )
+                client = meilisearch.Client(self.config.host, self.config.master_key)
                 client.health()
                 logger.info("MeiliSearch", "MeiliSearch started successfully")
                 self.client = client
@@ -246,17 +246,36 @@ class MeiliSearchManager:
                 self.process.wait()
             logger.info("MeiliSearch", "MeiliSearch stopped")
 
-    def document_exists(self, document_id: str) -> bool:
-        """Check if a document exists in the index."""
+    def get_indexed_document_ids(self) -> set[str]:
+        """Get all document IDs that are already indexed."""
         if not self.client:
             raise RuntimeError("MeiliSearch client not initialized")
 
         try:
             index = self.client.get_index(self.index_name)
-            index.get_document(document_id)
-            return True
+            # Fetch all document IDs in batches
+            doc_ids = set()
+            offset = 0
+            limit = 1000
+
+            while True:
+                results = index.get_documents(
+                    {"limit": limit, "offset": offset, "fields": ["id"]}
+                )
+                if not results.results:
+                    break
+                # results.results is a list of dicts
+                for doc in results.results:
+                    if isinstance(doc, dict) and "id" in doc:
+                        doc_ids.add(doc["id"])
+                offset += limit
+                if len(results.results) < limit:
+                    break
+
+            return doc_ids
         except Exception:
-            return False
+            # If index doesn't exist or error, return empty set
+            return set()
 
     def index_messages(self, messages: list[MessageDocument]) -> None:
         """Index a batch of messages."""
@@ -282,8 +301,7 @@ class MeiliSearchManager:
             for msg in messages
         ]
 
-        task = index.add_documents(documents)
-        logger.info("Indexing", f"Indexed {len(messages)} messages (task: {task.task_uid})")
+        index.add_documents(documents)
 
     def search(
         self, query: str, limit: int = 20, filters: dict[str, Any] | None = None
