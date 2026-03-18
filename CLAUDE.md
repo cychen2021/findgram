@@ -9,7 +9,7 @@ findgram is a modernized alternative to [SearchGram](https://github.com/tgbot-co
 - Multi-account support (multiple sessions)
 - Superior Chinese language search capabilities via MeiliSearch
 - Modern Python toolchain using uv for dependency management
-- Structured logging via phdkit
+- Structured logging via [phdkit](https://github.com/cychen2021/phdkit.git)
 
 ## Architecture
 
@@ -58,13 +58,13 @@ Configuration files are stored in XDG_CONFIG_HOME (typically `~/.config/findgram
 
 **secrets.toml**:
 ```toml
-APP_TOKEN = "your-bot-token-here"
+app_token = "your-bot-token-here"
 ```
 
 **config.toml**:
 ```toml
-APP_ID = 12345
-APP_HASH = "your-app-hash"
+app_id = 12345
+app_hash = "your-app-hash"
 
 # MeiliSearch configuration
 [meilisearch]
@@ -75,8 +75,9 @@ memory_limit = "512MB"  # Adjust based on available resources
 name = "account1"
 telegram_id = 123456789
 included_chats = [
-    -1001234567890,  # Group chat ID
-    987654321,       # User ID
+    -1001234567890,  # Group chat ID (numeric)
+    987654321,       # User ID (numeric)
+    "@username",     # Username (string) - supports @ prefix or plain username
 ]
 
 [[sessions]]
@@ -84,6 +85,7 @@ name = "account2"
 telegram_id = 987654321
 included_chats = [
     -1009876543210,
+    "@channelname",  # Channel username
 ]
 ```
 
@@ -180,7 +182,7 @@ findgram/
 To use this bot, you need:
 
 1. **Bot Token**: Create a bot via [@BotFather](https://t.me/botfather) on Telegram
-2. **API Credentials**: Get APP_ID and APP_HASH from [https://my.telegram.org](https://my.telegram.org)
+2. **API Credentials**: Get `app_id` and `app_hash` from [https://my.telegram.org](https://my.telegram.org)
 3. **User Sessions**: Authorize each account you want to search (handled on first run)
 
 ## MeiliSearch Setup
@@ -210,7 +212,7 @@ Update config.toml with MeiliSearch connection details.
 
 ### Telegram API Errors
 
-- Ensure APP_ID and APP_HASH are correct
+- Ensure `app_id` and `app_hash` are correct
 - Check rate limits haven't been exceeded
 - Verify bot token is valid
 
