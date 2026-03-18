@@ -4,6 +4,25 @@ version = "0.1.0"
 description = "A telegram bot to search your messages with good Chinese and multi-account support."
 readme = "README.md"
 requires-python = ">=3.13"
+license = { text = "MIT" }
+keywords = [
+    "telegram",
+    "bot",
+    "search",
+    "meilisearch",
+    "chinese",
+    "multi-account",
+    "message-search",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Communications :: Chat",
+    "Topic :: Internet",
+]
 dependencies = [
     "click>=8.3.1",
     "meilisearch>=0.40.0",
@@ -11,7 +30,17 @@ dependencies = [
     "rich>=14.3.3",
     "telethon>=1.42.0",
 ]
+
 [[project.authors]]
 name = "Chuyang Chen"
 email = "chuyangchen2018@outlook.com"
+
+[project.urls]
+Homepage = "https://github.com/cychen2021/findgram"
+Repository = "https://github.com/cychen2021/findgram.git"
+"Bug Tracker" = "https://github.com/cychen2021/findgram/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 

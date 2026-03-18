@@ -1,0 +1,219 @@
+# findgram
+
+A Telegram bot for searching message history across multiple accounts with excellent Chinese language support and modern tooling.
+
+## Project Overview
+
+findgram is a modernized alternative to [SearchGram](https://github.com/tgbot-collection/SearchGram) that provides:
+- Full-text search across Telegram message history
+- Multi-account support (multiple sessions)
+- Superior Chinese language search capabilities via MeiliSearch
+- Modern Python toolchain using uv for dependency management
+- Structured logging via phdkit
+
+## Architecture
+
+### Core Components
+
+1. **Telegram Client (Telethon)**
+   - Handles Telegram API interactions
+   - Manages multiple user sessions (accounts)
+   - Fetches message history from configured chats
+
+2. **Search Engine (MeiliSearch)**
+   - Provides fast full-text search with excellent Chinese support
+   - Indexes messages from all configured sessions
+   - Configurable memory limits
+
+3. **Bot Interface (Telethon)**
+   - Receives search queries from users
+   - Returns formatted search results
+   - Uses bot token for authentication
+
+4. **Logging (phdkit)**
+   - Custom logging framework maintained by project author
+   - Structured logging for better debugging
+
+## Technology Stack
+
+- **Python**: 3.13+ (required)
+- **Package Manager**: uv
+- **Key Dependencies**:
+  - `telethon>=1.42.0` - Telegram API client
+  - `meilisearch>=0.40.0` - Search engine client
+  - `phdkit>=0.1.3` - Logging framework
+  - `click>=8.3.1` - CLI interface
+  - `rich>=14.3.3` - Terminal formatting
+
+## Configuration
+
+### File Locations
+
+Configuration files are stored in XDG_CONFIG_HOME (typically `~/.config/findgram/`):
+
+- `secrets.toml` - Sensitive credentials
+- `config.toml` - Application configuration
+
+### Configuration Schema
+
+**secrets.toml**:
+```toml
+APP_TOKEN = "your-bot-token-here"
+```
+
+**config.toml**:
+```toml
+APP_ID = 12345
+APP_HASH = "your-app-hash"
+
+# MeiliSearch configuration
+[meilisearch]
+memory_limit = "512MB"  # Adjust based on available resources
+
+# Session configuration (one per account)
+[[sessions]]
+name = "account1"
+telegram_id = 123456789
+included_chats = [
+    -1001234567890,  # Group chat ID
+    987654321,       # User ID
+]
+
+[[sessions]]
+name = "account2"
+telegram_id = 987654321
+included_chats = [
+    -1009876543210,
+]
+```
+
+## Development
+
+### Setup
+
+1. **Install uv** (if not already installed):
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+2. **Clone and setup**:
+   ```bash
+   git clone <repository-url>
+   cd findgram
+   uv sync  # Creates venv and installs dependencies
+   ```
+
+3. **Configure the bot**:
+   - Create `~/.config/findgram/secrets.toml`
+   - Create `~/.config/findgram/config.toml`
+   - See Configuration section above for schema
+
+4. **Run**:
+   ```bash
+   uv run python main.py
+   ```
+
+### Code Organization
+
+```
+findgram/
+├── main.py              # Entry point
+├── pyproject.toml       # Project metadata and dependencies
+├── uv.lock             # Dependency lock file
+└── README.md           # User documentation
+```
+
+## Key Differences from SearchGram
+
+1. **Multi-Account Support**: Native support for searching across multiple Telegram accounts simultaneously
+2. **Modern Toolchain**: Uses uv instead of pip/poetry for faster, more reliable dependency management
+3. **Better Chinese Support**: Leverages MeiliSearch's superior Chinese language tokenization
+4. **Structured Logging**: Uses phdkit for better debugging and monitoring
+5. **Python 3.13+**: Takes advantage of latest Python features and performance improvements
+
+## Development Conventions
+
+### Code Style
+
+- Follow PEP 8 style guidelines
+- Use type hints where applicable
+- Keep functions focused and modular
+
+### Dependencies
+
+- All dependencies managed through `pyproject.toml`
+- Use `uv add <package>` to add new dependencies
+- Use `uv lock` to update lock file after changes
+
+### Testing
+
+- Run tests with: `uv run pytest` (when tests are added)
+- Ensure all tests pass before committing
+
+### Commits
+
+- Follow conventional commit format: `type: description`
+- Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
+
+## Bot Operations
+
+### Message Indexing Flow
+
+1. Bot authenticates with configured sessions
+2. Fetches message history from specified chats
+3. Indexes messages into MeiliSearch
+4. Maintains real-time updates for new messages
+
+### Search Flow
+
+1. User sends search query to bot
+2. Bot queries MeiliSearch with user's search terms
+3. Results aggregated across all sessions
+4. Formatted results returned to user with context
+
+## Telegram API Setup
+
+To use this bot, you need:
+
+1. **Bot Token**: Create a bot via [@BotFather](https://t.me/botfather) on Telegram
+2. **API Credentials**: Get APP_ID and APP_HASH from [https://my.telegram.org](https://my.telegram.org)
+3. **User Sessions**: Authorize each account you want to search (handled on first run)
+
+## MeiliSearch Setup
+
+MeiliSearch must be running and accessible:
+
+```bash
+# Install and run MeiliSearch
+curl -L https://install.meilisearch.com | sh
+./meilisearch --master-key="your-master-key"
+```
+
+Update config.toml with MeiliSearch connection details.
+
+## Troubleshooting
+
+### Session Files
+
+- Session files stored in `~/.config/findgram/sessions/`
+- Delete session files to re-authenticate an account
+
+### Search Issues
+
+- Check MeiliSearch is running and accessible
+- Verify memory_limit is sufficient for message volume
+- Review logs for indexing errors
+
+### Telegram API Errors
+
+- Ensure APP_ID and APP_HASH are correct
+- Check rate limits haven't been exceeded
+- Verify bot token is valid
+
+## Contributing
+
+When contributing code:
+1. Ensure code follows project conventions
+2. Update documentation if adding features
+3. Test with multiple accounts if changing session handling
+4. Verify Chinese language search still works correctly
