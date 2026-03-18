@@ -68,7 +68,7 @@ Configuration files are stored in `~/.config/findgram/` (or your XDG_CONFIG_HOME
 Create `~/.config/findgram/secrets.toml` with your bot token:
 
 ```toml
-APP_TOKEN = "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
+app_token = "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
 ```
 
 Get your bot token from [@BotFather](https://t.me/botfather) on Telegram.
@@ -79,8 +79,8 @@ Create `~/.config/findgram/config.toml`:
 
 ```toml
 # Telegram API credentials from https://my.telegram.org
-APP_ID = 12345678
-APP_HASH = "abcdef1234567890abcdef1234567890"
+app_id = 12345678
+app_hash = "abcdef1234567890abcdef1234567890"
 
 # MeiliSearch configuration
 [meilisearch]
@@ -101,6 +101,7 @@ name = "work"
 telegram_id = 987654321
 included_chats = [
     -1002468135790,
+    "@workchannel",         # Channel username
 ]
 ```
 
