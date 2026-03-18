@@ -121,7 +121,7 @@ class MeiliSearchManager:
         # Check if already running
         try:
             client = meilisearch.Client(
-                self.config.host, self.config.master_key or ""
+                self.config.host, self.config.master_key
             )
             client.health()
             logger.info("MeiliSearch", "MeiliSearch is already running")
@@ -176,7 +176,7 @@ class MeiliSearchManager:
 
             try:
                 client = meilisearch.Client(
-                    self.config.host, self.config.master_key or ""
+                    self.config.host, self.config.master_key
                 )
                 client.health()
                 logger.info("MeiliSearch", "MeiliSearch started successfully")

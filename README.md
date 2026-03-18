@@ -51,19 +51,14 @@ uv sync
 
 ### 4. MeiliSearch Setup
 
-MeiliSearch will be automatically downloaded and installed when you first run findgram if it's not already available in your PATH or current directory.
+**MeiliSearch is automatically managed by findgram** - you don't need to install or run it manually!
 
-Alternatively, you can manually install and run MeiliSearch:
+When you first run findgram, it will:
+1. Check if MeiliSearch is available (in PATH or current directory)
+2. Download and install it automatically if not found
+3. Start it as a subprocess with your configured settings
 
-```bash
-# Manual installation (optional)
-curl -L https://install.meilisearch.com | sh
-
-# Run MeiliSearch manually (optional)
-./meilisearch --master-key="your-master-key-here"
-```
-
-**Note**: If you don't manually run MeiliSearch, findgram will start it automatically with the configured settings.
+The `master_key` setting in `secrets.toml` (if provided) will be used when starting MeiliSearch.
 
 ## Configuration
 
@@ -77,9 +72,15 @@ Create `~/.config/findgram/secrets.toml` with your bot token:
 
 ```toml
 app_token = "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
+
+# Optional: MeiliSearch master key for authentication
+# If omitted, MeiliSearch runs in development mode without authentication
+# master_key = "your-secure-master-key-here"
 ```
 
 Get your bot token from [@BotFather](https://t.me/botfather) on Telegram.
+
+**Note on master_key**: This is optional and only needed if you want to secure your MeiliSearch instance. For local development, you can safely omit it.
 
 ### 2. Create config.toml
 
@@ -211,10 +212,11 @@ rm ~/.local/share/findgram/sessions/*.session
 
 ### "MeiliSearch connection error"
 
-Ensure MeiliSearch is running:
-```bash
-./meilisearch --master-key="your-master-key"
-```
+MeiliSearch is automatically started by findgram. If you encounter connection errors:
+
+1. Check if another MeiliSearch instance is running on port 7700
+2. Verify the `master_key` in `secrets.toml` matches any manually running instance
+3. Check the logs for MeiliSearch startup errors
 
 ### "Rate limit exceeded"
 

@@ -64,6 +64,10 @@ findgram is a modernized alternative to [SearchGram](https://github.com/tgbot-co
 **secrets.toml**:
 ```toml
 app_token = "your-bot-token-here"
+
+# Optional: MeiliSearch master key for authentication
+# If omitted, MeiliSearch runs in development mode without authentication
+# master_key = "your-secure-master-key-here"
 ```
 
 **config.toml**:
@@ -192,15 +196,14 @@ To use this bot, you need:
 
 ## MeiliSearch Setup
 
-MeiliSearch must be running and accessible:
+MeiliSearch is **automatically managed by findgram**:
 
-```bash
-# Install and run MeiliSearch
-curl -L https://install.meilisearch.com | sh
-./meilisearch --master-key="your-master-key"
-```
+1. On startup, findgram checks for MeiliSearch binary (in PATH or current directory)
+2. If not found, it automatically downloads and installs the appropriate version for your platform
+3. It then spawns MeiliSearch as a subprocess with configured settings
+4. On shutdown, findgram stops the MeiliSearch process
 
-Update config.toml with MeiliSearch connection details.
+The `master_key` is optional and configured in `secrets.toml`. If omitted, MeiliSearch runs in development mode without authentication, which is suitable for local use. If provided, findgram passes it to MeiliSearch via the `--master-key` flag.
 
 ## Troubleshooting
 

@@ -95,7 +95,7 @@ def load_config() -> Config:
     meilisearch = MeiliSearchConfig(
         memory_limit=meilisearch_data.get("memory_limit", "512MB"),
         host=meilisearch_data.get("host", "http://localhost:7700"),
-        master_key=meilisearch_data.get("master_key"),
+        master_key=secrets_data.get("master_key"),
     )
 
     # Parse sessions
