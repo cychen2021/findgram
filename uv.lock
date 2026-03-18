@@ -192,6 +192,7 @@ dependencies = [
     { name = "click" },
     { name = "meilisearch" },
     { name = "phdkit" },
+    { name = "rich" },
     { name = "telethon" },
 ]
 
@@ -200,6 +201,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.3.1" },
     { name = "meilisearch", specifier = ">=0.40.0" },
     { name = "phdkit", specifier = ">=0.1.3" },
+    { name = "rich", specifier = ">=14.3.3" },
     { name = "telethon", specifier = ">=1.42.0" },
 ]
 
