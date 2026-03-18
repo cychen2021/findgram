@@ -246,6 +246,12 @@ class MeiliSearchManager:
                 self.process.wait()
             logger.info("MeiliSearch", "MeiliSearch stopped")
 
+    def get_index(self):
+        """Get the MeiliSearch index object."""
+        if not self.client:
+            raise RuntimeError("MeiliSearch client not initialized")
+        return self.client.get_index(self.index_name)
+
     def get_document_count(self) -> int:
         """Get the total number of documents in the index."""
         if not self.client:
@@ -304,15 +310,26 @@ class MeiliSearchManager:
             # If index doesn't exist or error, return empty set
             return set()
 
-    def index_messages(self, messages: list[MessageDocument]) -> None:
+    def index_messages(self, messages: list[MessageDocument], index=None) -> None:
         """Index a batch of messages."""
+        logger.info(
+            "MeiliSearch Debug", f"index_messages called with {len(messages)} messages"
+        )
+
         if not self.client:
             raise RuntimeError("MeiliSearch client not initialized")
 
         if not messages:
             return
 
-        index = self.client.get_index(self.index_name)
+        if index is None:
+            logger.info("MeiliSearch Debug", "About to call get_index")
+            index = self.client.get_index(self.index_name)
+            logger.info("MeiliSearch Debug", "get_index completed")
+        else:
+            logger.info("MeiliSearch Debug", "Using provided index object")
+
+        logger.info("MeiliSearch Debug", "Building document list")
         documents = [
             {
                 "id": msg.id,
@@ -327,8 +344,14 @@ class MeiliSearchManager:
             }
             for msg in messages
         ]
+        logger.info(
+            "MeiliSearch Debug", f"Document list built with {len(documents)} items"
+        )
 
+        logger.info("MeiliSearch Debug", "About to call add_documents")
         task = index.add_documents(documents)
+        logger.info("MeiliSearch Debug", "add_documents call completed")
+
         logger.info(
             "MeiliSearch",
             f"Submitted batch of {len(documents)} documents to index (task: {task.task_uid})",
