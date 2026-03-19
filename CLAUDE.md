@@ -7,7 +7,7 @@ A Telegram bot for searching message history across multiple accounts with excel
 findgram is a modernized alternative to [SearchGram](https://github.com/tgbot-collection/SearchGram) that provides:
 - Full-text search across Telegram message history
 - Multi-account support (multiple sessions)
-- Superior Chinese language search capabilities via MeiliSearch
+- Superior Chinese language search capabilities via Tantivy + jieba
 - Modern Python toolchain using uv for dependency management
 - Structured logging via [phdkit](https://github.com/cychen2021/phdkit.git)
 
@@ -20,10 +20,11 @@ findgram is a modernized alternative to [SearchGram](https://github.com/tgbot-co
    - Manages multiple user sessions (accounts)
    - Fetches message history from configured chats
 
-2. **Search Engine (MeiliSearch)**
-   - Provides fast full-text search with excellent Chinese support
+2. **Search Engine (Tantivy + jieba)**
+   - Tantivy provides fast, embedded full-text search
+   - jieba handles Chinese text tokenization for better search accuracy
    - Indexes messages from all configured sessions
-   - Configurable memory limits
+   - Low memory footprint compared to external search engines
 
 3. **Bot Interface (Telethon)**
    - Receives search queries from users
@@ -40,7 +41,8 @@ findgram is a modernized alternative to [SearchGram](https://github.com/tgbot-co
 - **Package Manager**: uv
 - **Key Dependencies**:
   - `telethon>=1.42.0` - Telegram API client
-  - `meilisearch>=0.40.0` - Search engine client
+  - `tantivy>=0.25.1` - Embedded search engine library
+  - `jieba>=0.42.1` - Chinese text segmentation
   - `phdkit>=0.1.3` - Logging framework
   - `click>=8.3.1` - CLI interface
   - `rich>=14.3.3` - Terminal formatting
@@ -56,7 +58,7 @@ findgram is a modernized alternative to [SearchGram](https://github.com/tgbot-co
 
 **Data files** (stored in XDG_DATA_HOME, typically `~/.local/share/findgram/`):
 
-- `meilisearch_data/` - MeiliSearch database with indexed messages
+- `tantivy_index/` - Tantivy search index with indexed messages
 - `sessions/` - Telegram session files
 
 ### Configuration Schema
@@ -64,10 +66,6 @@ findgram is a modernized alternative to [SearchGram](https://github.com/tgbot-co
 **secrets.toml**:
 ```toml
 app_token = "your-bot-token-here"
-
-# Optional: MeiliSearch master key for authentication
-# If omitted, MeiliSearch runs in development mode without authentication
-# master_key = "your-secure-master-key-here"
 ```
 
 **config.toml**:
@@ -75,9 +73,9 @@ app_token = "your-bot-token-here"
 app_id = 12345
 app_hash = "your-app-hash"
 
-# MeiliSearch configuration
-[meilisearch]
-memory_limit = "512MB"  # Adjust based on available resources
+# Search engine configuration (optional)
+[search]
+# index_path = "/custom/path/to/index"  # If omitted, uses default data directory
 
 # Session configuration (one per account)
 [[sessions]]
@@ -142,9 +140,10 @@ findgram/
 
 1. **Multi-Account Support**: Native support for searching across multiple Telegram accounts simultaneously
 2. **Modern Toolchain**: Uses uv instead of pip/poetry for faster, more reliable dependency management
-3. **Better Chinese Support**: Leverages MeiliSearch's superior Chinese language tokenization
-4. **Structured Logging**: Uses phdkit for better debugging and monitoring
-5. **Python 3.13+**: Takes advantage of latest Python features and performance improvements
+3. **Better Chinese Support**: Uses Tantivy with jieba tokenization for excellent Chinese text segmentation
+4. **Embedded Search Engine**: Tantivy is a library (no external process), reducing memory overhead
+5. **Structured Logging**: Uses phdkit for better debugging and monitoring
+6. **Python 3.13+**: Takes advantage of latest Python features and performance improvements
 
 ## Development Conventions
 
@@ -176,15 +175,17 @@ findgram/
 
 1. Bot authenticates with configured sessions
 2. Fetches message history from specified chats
-3. Indexes messages into MeiliSearch
-4. Maintains real-time updates for new messages
+3. Text is tokenized using jieba (for Chinese language support)
+4. Indexes messages into Tantivy
+5. Maintains real-time updates for new messages
 
 ### Search Flow
 
 1. User sends search query to bot
-2. Bot queries MeiliSearch with user's search terms
-3. Results aggregated across all sessions
-4. Formatted results returned to user with context
+2. Query text is tokenized using jieba
+3. Bot searches Tantivy index with tokenized terms
+4. Results aggregated across all sessions
+5. Formatted results returned to user with context
 
 ## Telegram API Setup
 
@@ -194,16 +195,19 @@ To use this bot, you need:
 2. **API Credentials**: Get `app_id` and `app_hash` from [https://my.telegram.org](https://my.telegram.org)
 3. **User Sessions**: Authorize each account you want to search (handled on first run)
 
-## MeiliSearch Setup
+## Search Engine Setup
 
-MeiliSearch is **automatically managed by findgram**:
+The search engine uses **Tantivy with jieba tokenization**:
 
-1. On startup, findgram checks for MeiliSearch binary (in PATH or current directory)
-2. If not found, it automatically downloads and installs the appropriate version for your platform
-3. It then spawns MeiliSearch as a subprocess with configured settings
-4. On shutdown, findgram stops the MeiliSearch process
+1. **Tantivy**: A fast, embedded full-text search library (no separate process needed)
+   - Index is stored in `~/.local/share/findgram/tantivy_index/` by default
+   - Can be customized via `[search] index_path` in config.toml
+   - Low memory footprint compared to external search engines
 
-The `master_key` is optional and configured in `secrets.toml`. If omitted, MeiliSearch runs in development mode without authentication, which is suitable for local use. If provided, findgram passes it to MeiliSearch via the `--master-key` flag.
+2. **jieba**: Chinese text segmentation library
+   - Automatically initialized on startup
+   - Provides excellent tokenization for Chinese text
+   - Works seamlessly with Tantivy's search capabilities
 
 ## Troubleshooting
 
@@ -214,9 +218,10 @@ The `master_key` is optional and configured in `secrets.toml`. If omitted, Meili
 
 ### Search Issues
 
-- Check MeiliSearch is running and accessible
-- Verify memory_limit is sufficient for message volume
+- Check if index directory exists and is writable
 - Review logs for indexing errors
+- If search quality is poor, consider re-indexing messages
+- For Chinese text, jieba tokenization should happen automatically
 
 ### Telegram API Errors
 

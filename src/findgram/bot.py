@@ -5,7 +5,7 @@ from datetime import datetime
 from phdkit.log import Logger, LogOutput
 from telethon import TelegramClient, events
 
-from .search import MeiliSearchManager
+from .search import TantivySearchManager
 
 logger = Logger(__name__, outputs=[LogOutput.stdout()])
 
@@ -13,7 +13,9 @@ logger = Logger(__name__, outputs=[LogOutput.stdout()])
 class SearchBot:
     """Handles search queries from users."""
 
-    def __init__(self, bot_client: TelegramClient, search_manager: MeiliSearchManager):
+    def __init__(
+        self, bot_client: TelegramClient, search_manager: TantivySearchManager
+    ):
         self.bot_client = bot_client
         self.search_manager = search_manager
 

@@ -5,13 +5,13 @@ __version__ = "0.1.0"
 from .bot import SearchBot
 from .config import Config, load_config
 from .indexer import MessageIndexer
-from .search import MeiliSearchManager, MessageDocument
+from .search import TantivySearchManager, MessageDocument
 from .telegram_client import BotClient, SessionManager
 
 __all__ = [
     "Config",
     "load_config",
-    "MeiliSearchManager",
+    "TantivySearchManager",
     "MessageDocument",
     "SessionManager",
     "BotClient",

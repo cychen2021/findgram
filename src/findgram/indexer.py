@@ -8,7 +8,7 @@ from telethon.errors import FloodWaitError
 from telethon.tl.types import Message
 
 from .config import Config, SessionConfig
-from .search import MessageDocument, MeiliSearchManager
+from .search import MessageDocument, TantivySearchManager
 
 logger = Logger(__name__, outputs=[LogOutput.stdout()])
 
@@ -19,7 +19,7 @@ class MessageIndexer:
     def __init__(
         self,
         config: Config,
-        search_manager: MeiliSearchManager,
+        search_manager: TantivySearchManager,
     ):
         self.config = config
         self.search_manager = search_manager
@@ -77,7 +77,7 @@ class MessageIndexer:
             # Get initial document count for this session
             logger.info(
                 "Indexing Chat",
-                f"[{session_config.name}] Getting document count from MeiliSearch",
+                f"[{session_config.name}] Getting document count from Tantivy",
             )
             initial_doc_count = self.search_manager.get_document_count()
             logger.info(
@@ -85,10 +85,10 @@ class MessageIndexer:
                 f"[{session_config.name}] Current index has {initial_doc_count} documents",
             )
 
-            # Get index object once and reuse it to avoid repeated HTTP calls
+            # Get index object once and reuse it (for compatibility)
             logger.info(
                 "Indexing Chat",
-                f"[{session_config.name}] Getting MeiliSearch index object",
+                f"[{session_config.name}] Getting Tantivy index object",
             )
             index = self.search_manager.get_index()
             logger.info(
@@ -235,44 +235,14 @@ class MessageIndexer:
 
                     messages_batch.append(doc)
 
-                    # Index in batches (with retry on timeout)
-                    while len(messages_batch) >= batch_size:
-                        # Recreate client every 50 batches to avoid HTTP connection issues
-                        if batch_count > 0 and batch_count % 50 == 0:
-                            logger.info(
-                                "MeiliSearch Refresh",
-                                f"[{session_config.name}] Recreating MeiliSearch client after {batch_count} batches",
-                            )
-                            self.search_manager.refresh_client()
-                            index = self.search_manager.get_index()
-
-                        # Wait before indexing if MeiliSearch needs time to catch up
-                        if meilisearch_delay > 0:
-                            logger.info(
-                                "MeiliSearch Delay",
-                                f"[{session_config.name}] Waiting {meilisearch_delay:.1f}s for MeiliSearch to catch up",
-                            )
-                            await asyncio.sleep(meilisearch_delay)
-
+                    # Index in batches
+                    if len(messages_batch) >= batch_size:
                         try:
                             response_time = await self.search_manager.index_messages(
                                 messages_batch, index=index
                             )
                             batch_count += 1
                             messages_batch = []  # Clear on success
-
-                            # AIMD: Fast response - additively decrease MeiliSearch delay
-                            if response_time < 0.5:  # Fast response (< 500ms)
-                                old_delay = meilisearch_delay
-                                meilisearch_delay = max(
-                                    meilisearch_min_delay,
-                                    meilisearch_delay - meilisearch_additive_decrease,
-                                )
-                                if meilisearch_delay != old_delay and old_delay > 0:
-                                    logger.info(
-                                        "MeiliSearch AIMD",
-                                        f"[{session_config.name}] Fast response ({response_time:.3f}s), delay: {old_delay:.1f}s → {meilisearch_delay:.1f}s",
-                                    )
 
                             # Log progress after each successful batch
                             if (
@@ -297,25 +267,13 @@ class MessageIndexer:
                             # Apply Telegram delay after each batch
                             await asyncio.sleep(telegram_delay)
 
-                            # Break out of retry loop on success
-                            break
-
-                        except asyncio.TimeoutError:
-                            # AIMD: Timeout - multiplicatively increase MeiliSearch delay
-                            old_delay = meilisearch_delay
-                            if meilisearch_delay == 0:
-                                meilisearch_delay = 10.0  # Bootstrap from 0 to 10s
-                            else:
-                                meilisearch_delay = min(
-                                    meilisearch_max_delay,
-                                    meilisearch_delay
-                                    * meilisearch_multiplicative_increase,
-                                )
+                        except Exception as e:
                             logger.error(
-                                "MeiliSearch AIMD",
-                                f"[{session_config.name}] Timeout, increased delay: {old_delay:.1f}s → {meilisearch_delay:.1f}s, will retry batch",
+                                "Indexing Error",
+                                f"[{session_config.name}] Error indexing batch: {e}",
                             )
-                            # Keep messages_batch and retry with increased delay
+                            # Clear batch and continue to avoid losing all messages
+                            messages_batch = []
 
                 except FloodWaitError as e:
                     # Telegram rate limit hit - back off
@@ -361,16 +319,13 @@ class MessageIndexer:
                     f"[{session_config.name}] Final batch submitted (response: {response_time:.3f}s)",
                 )
 
-            # Get final document count to see how many were actually new
-            # Note: There may be a delay before MeiliSearch finishes indexing
-            await asyncio.sleep(0.5)  # Give MeiliSearch time to process
+            # Get final document count
             final_doc_count = self.search_manager.get_document_count()
             new_docs = final_doc_count - initial_doc_count
-            already_indexed = processed_count - new_docs
 
             logger.info(
                 "Indexing Complete",
-                f"[{session_config.name}] Chat {chat_id}: Processed {processed_count} text messages - {new_docs} new, {already_indexed} already indexed",
+                f"[{session_config.name}] Chat {chat_id}: Processed {processed_count} text messages, index now has {final_doc_count} documents (+{new_docs})",
             )
             return processed_count
 

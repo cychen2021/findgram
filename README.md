@@ -5,8 +5,9 @@ A powerful Telegram bot for searching your message history across multiple accou
 ## Features
 
 - **Multi-Account Search**: Search across multiple Telegram accounts simultaneously
-- **Excellent Chinese Support**: Powered by MeiliSearch for superior Chinese language tokenization and search
-- **Fast Full-Text Search**: Lightning-fast search across your entire message history
+- **Excellent Chinese Support**: Uses Tantivy with jieba for superior Chinese language tokenization and search
+- **Fast Full-Text Search**: Lightning-fast embedded search across your entire message history
+- **Low Memory Footprint**: Tantivy is an embedded library, no separate process needed
 - **Modern Toolchain**: Built with Python 3.13+ and uv for reliable dependency management
 - **Flexible Configuration**: Easy TOML-based configuration for accounts, chats, and search parameters
 - **Privacy-Focused**: Self-hosted search - your data stays on your infrastructure
@@ -23,7 +24,6 @@ findgram is inspired by [SearchGram](https://github.com/tgbot-collection/SearchG
 ## Requirements
 
 - Python 3.13 or higher
-- [MeiliSearch](https://www.meilisearch.com/) (automatically installed if not found)
 - Telegram account(s) to search
 - Telegram Bot Token from [@BotFather](https://t.me/botfather)
 - Telegram API credentials (APP_ID and APP_HASH) from [my.telegram.org](https://my.telegram.org)
@@ -49,16 +49,13 @@ cd findgram
 uv sync
 ```
 
-### 4. MeiliSearch Setup
+### 4. Search Engine
 
-**MeiliSearch is automatically managed by findgram** - you don't need to install or run it manually!
-
-When you first run findgram, it will:
-1. Check if MeiliSearch is available (in PATH or current directory)
-2. Download and install it automatically if not found
-3. Start it as a subprocess with your configured settings
-
-The `master_key` setting in `secrets.toml` (if provided) will be used when starting MeiliSearch.
+findgram uses **Tantivy** (an embedded search library) with **jieba** for Chinese tokenization:
+- No separate process to install or manage
+- Low memory footprint
+- Excellent Chinese language support through jieba
+- Index is automatically created in `~/.local/share/findgram/tantivy_index/`
 
 ## Configuration
 
@@ -72,15 +69,9 @@ Create `~/.config/findgram/secrets.toml` with your bot token:
 
 ```toml
 app_token = "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
-
-# Optional: MeiliSearch master key for authentication
-# If omitted, MeiliSearch runs in development mode without authentication
-# master_key = "your-secure-master-key-here"
 ```
 
 Get your bot token from [@BotFather](https://t.me/botfather) on Telegram.
-
-**Note on master_key**: This is optional and only needed if you want to secure your MeiliSearch instance. For local development, you can safely omit it.
 
 ### 2. Create config.toml
 
@@ -91,9 +82,9 @@ Create `~/.config/findgram/config.toml`:
 app_id = 12345678
 app_hash = "abcdef1234567890abcdef1234567890"
 
-# MeiliSearch configuration
-[meilisearch]
-memory_limit = "512MB"  # Adjust based on your server capacity
+# Search configuration (optional)
+[search]
+# index_path = "/custom/path"  # Custom index location (optional)
 
 # Define each account you want to search
 [[sessions]]
@@ -178,7 +169,7 @@ findgram/
 │   ├── personal.session
 │   ├── work.session
 │   └── bot.session
-└── meilisearch_data/    # MeiliSearch database with indexed messages
+└── tantivy_index/       # Tantivy search index with indexed messages
 ```
 
 ## Getting Telegram Credentials
@@ -212,13 +203,13 @@ Delete the session file and restart. The bot will prompt you to re-authenticate:
 rm ~/.local/share/findgram/sessions/*.session
 ```
 
-### "MeiliSearch connection error"
+### "Index not found" or search errors
 
-MeiliSearch is automatically started by findgram. If you encounter connection errors:
+If you encounter indexing or search errors:
 
-1. Check if another MeiliSearch instance is running on port 7700
-2. Verify the `master_key` in `secrets.toml` matches any manually running instance
-3. Check the logs for MeiliSearch startup errors
+1. Check if `~/.local/share/findgram/tantivy_index/` exists and is writable
+2. Try deleting the index directory and re-indexing
+3. Check the logs for specific error messages
 
 ### "Rate limit exceeded"
 
@@ -226,7 +217,9 @@ Telegram has rate limits. The bot will automatically handle this, but initial in
 
 ### Chinese search not working well
 
-Verify MeiliSearch is running with the correct configuration. MeiliSearch provides excellent Chinese language support out of the box.
+The bot uses jieba for Chinese tokenization, which provides excellent support for Chinese text. If search quality is poor:
+- Consider re-indexing your messages
+- Check that messages are being indexed correctly in the logs
 
 ## Contributing
 
@@ -248,5 +241,6 @@ Chuyang Chen (chuyangchen2018@outlook.com)
 
 - Inspired by [SearchGram](https://github.com/tgbot-collection/SearchGram)
 - Uses [phdkit](https://github.com/cychen2021/phdkit.git) for logging
-- Powered by [MeiliSearch](https://www.meilisearch.com/) for search capabilities
+- Powered by [Tantivy](https://github.com/quickwit-oss/tantivy) for search capabilities
+- Uses [jieba](https://github.com/fxsjy/jieba) for Chinese text segmentation
 - Built with [Telethon](https://github.com/LonamiWebs/Telethon) for Telegram API

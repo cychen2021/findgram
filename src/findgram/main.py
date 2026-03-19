@@ -10,7 +10,7 @@ from phdkit.log import Logger, LogOutput
 from .bot import SearchBot
 from .config import load_config
 from .indexer import MessageIndexer
-from .search import MeiliSearchManager
+from .search import TantivySearchManager
 from .telegram_client import BotClient, SessionManager
 
 logger = Logger(__name__, outputs=[LogOutput.stdout()])
@@ -21,7 +21,7 @@ class FindgramApp:
 
     def __init__(self):
         self.config = load_config()
-        self.search_manager = MeiliSearchManager(self.config.meilisearch)
+        self.search_manager = TantivySearchManager(self.config.search)
         self.session_manager = SessionManager(self.config)
         self.bot_client = BotClient(self.config)
         self.should_stop = False
@@ -30,7 +30,7 @@ class FindgramApp:
         """Setup all components."""
         logger.info("Setup", "Starting findgram...")
 
-        # Start MeiliSearch
+        # Start Tantivy search manager
         self.search_manager.start()
 
         # Initialize sessions
@@ -143,9 +143,9 @@ def config_info():
         click.echo("Configuration loaded successfully:")
         click.echo(f"  APP_ID: {config.app_id}")
         click.echo(f"  APP_HASH: {config.app_hash[:10]}...")
-        click.echo(f"\nMeiliSearch:")
-        click.echo(f"  Host: {config.meilisearch.host}")
-        click.echo(f"  Memory Limit: {config.meilisearch.memory_limit}")
+        click.echo(f"\nSearch Engine: Tantivy + jieba")
+        index_path = config.search.index_path or "(default data directory)"
+        click.echo(f"  Index Path: {index_path}")
         click.echo(f"\nSessions ({len(config.sessions)}):")
         for session in config.sessions:
             click.echo(f"  - {session.name}")

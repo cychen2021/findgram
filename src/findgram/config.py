@@ -21,12 +21,10 @@ class SessionConfig:
 
 
 @dataclass
-class MeiliSearchConfig:
-    """MeiliSearch configuration."""
+class SearchConfig:
+    """Search engine configuration."""
 
-    memory_limit: str = "4GB"
-    host: str = "http://localhost:7700"
-    master_key: str | None = None
+    index_path: str | None = None  # If None, uses default data dir
 
 
 @dataclass
@@ -37,7 +35,7 @@ class Config:
     app_hash: str
     app_token: str
     sessions: list[SessionConfig]
-    meilisearch: MeiliSearchConfig
+    search: SearchConfig
 
 
 def get_config_dir() -> Path:
@@ -90,12 +88,10 @@ def load_config() -> Config:
     with open(secrets_path, "rb") as f:
         secrets_data = tomllib.load(f)
 
-    # Parse MeiliSearch config
-    meilisearch_data = config_data.get("meilisearch", {})
-    meilisearch = MeiliSearchConfig(
-        memory_limit=meilisearch_data.get("memory_limit", "512MB"),
-        host=meilisearch_data.get("host", "http://localhost:7700"),
-        master_key=secrets_data.get("master_key"),
+    # Parse search config
+    search_data = config_data.get("search", {})
+    search = SearchConfig(
+        index_path=search_data.get("index_path"),
     )
 
     # Parse sessions
@@ -117,5 +113,5 @@ def load_config() -> Config:
         app_hash=config_data["app_hash"],
         app_token=secrets_data["app_token"],
         sessions=sessions,
-        meilisearch=meilisearch,
+        search=search,
     )
