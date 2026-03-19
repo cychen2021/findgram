@@ -142,9 +142,7 @@ class SearchBot:
                 if not full_text and len(text) > 200:
                     text = text[:197] + "..."
 
-                response += (
-                    f"📅 {date_str}\n👤 {who_info}\n\n{text}\n"
-                )
+                response += f"📅 {date_str}\n👤 {who_info}\n\n{text}\n"
 
                 # Add separator between results, but not after the last one
                 if i < len(results):
