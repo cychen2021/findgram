@@ -106,14 +106,12 @@ class SearchBot:
                 date_str = date.strftime("%Y-%m-%d %H:%M")
 
                 # Format sender info
-                sender_info = ""
-                if result.get("sender_name"):
-                    sender_info = f"👤 {result['sender_name']}\n"
+                sender_info = result.get("sender_name") or "Unknown"
 
-                # Format chat info
-                chat_info = ""
-                if result.get("chat_title"):
-                    chat_info = f"💬 {result['chat_title']}\n"
+                # Format receiver info
+                receiver_info = (
+                    result.get("receiver_name") or result.get("chat_title") or "Unknown"
+                )
 
                 # Get text preview (limit to 200 chars)
                 text = result["text"]
@@ -121,12 +119,12 @@ class SearchBot:
                     text = text[:197] + "..."
 
                 response += (
-                    f"{i}. {chat_info}"
-                    f"{sender_info}"
-                    f"📅 {date_str}\n"
-                    f"💭 {text}\n"
-                    f"📍 Session: {result['session_name']}\n\n"
+                    f"📅 {date_str}\n👤 {sender_info} → {receiver_info}\n\n{text}\n"
                 )
+
+                # Add separator between results, but not after the last one
+                if i < len(results):
+                    response += "\n─ ─ ─ ─ ─ ─ ─ ─ ─ ─\n\n"
 
             # Split response if too long (Telegram limit is 4096 chars)
             if len(response) > 4096:

@@ -27,6 +27,7 @@ class MessageDocument:
     text: str
     sender_id: int | None
     sender_name: str | None
+    receiver_name: str | None
     date: int  # Unix timestamp
     chat_title: str | None
 
@@ -70,8 +71,9 @@ class TantivySearchManager:
             "text_original", stored=True, tokenizer_name="raw"
         )  # Original text for display
         schema_builder.add_integer_field("sender_id", stored=True, indexed=True)
+        schema_builder.add_text_field("sender_name", stored=True, tokenizer_name="raw")
         schema_builder.add_text_field(
-            "sender_name", stored=True, tokenizer_name="default"
+            "receiver_name", stored=True, tokenizer_name="raw"
         )
         schema_builder.add_integer_field("date", stored=True, indexed=True)
         schema_builder.add_text_field(
@@ -179,8 +181,10 @@ class TantivySearchManager:
                     doc.add_integer("sender_id", msg.sender_id)
 
                 if msg.sender_name:
-                    tokenized_sender = self._tokenize_chinese(msg.sender_name)
-                    doc.add_text("sender_name", tokenized_sender)
+                    doc.add_text("sender_name", msg.sender_name)
+
+                if msg.receiver_name:
+                    doc.add_text("receiver_name", msg.receiver_name)
 
                 doc.add_integer("date", msg.date)
 
@@ -277,6 +281,7 @@ class TantivySearchManager:
                 "text_original",
                 "sender_id",
                 "sender_name",
+                "receiver_name",
                 "date",
                 "chat_title",
             ]
@@ -307,7 +312,10 @@ class TantivySearchManager:
 
                 if "session_name" in filters:
                     if doc_dict.get("session_name") != filters["session_name"]:
-                        logger.info("Search Filter", f"Filtering out: session_name={doc_dict.get('session_name')} != {filters['session_name']}")
+                        logger.info(
+                            "Search Filter",
+                            f"Filtering out: session_name={doc_dict.get('session_name')} != {filters['session_name']}",
+                        )
                         match = False
 
                 if "chat_id" in filters and match:

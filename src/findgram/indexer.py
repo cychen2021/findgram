@@ -5,7 +5,7 @@ import asyncio
 from phdkit.log import Logger, LogOutput
 from telethon import TelegramClient, events
 from telethon.errors import FloodWaitError
-from telethon.tl.types import Message
+from telethon.tl.types import Message, User as TelegramUser
 
 from .config import Config, SessionConfig
 from .search import MessageDocument, TantivySearchManager
@@ -77,6 +77,7 @@ class MessageIndexer:
             chat_title = getattr(chat, "title", None) or getattr(
                 chat, "first_name", None
             )
+            is_private_chat = isinstance(chat, TelegramUser)
 
             # Get sender ID
             sender_id = None
@@ -87,6 +88,31 @@ class MessageIndexer:
                     or getattr(message.from_id, "chat_id", None)
                 )
 
+            # Get sender name
+            sender_name = None
+            sender = await message.get_sender()
+            if sender:
+                sender_name = getattr(sender, "first_name", None) or getattr(
+                    sender, "title", None
+                )
+                last_name = getattr(sender, "last_name", None)
+                if sender_name and last_name:
+                    sender_name = f"{sender_name} {last_name}"
+
+            # Compute receiver_name based on chat type and message direction
+            if is_private_chat:
+                me = await client.get_me()
+                me_name = None
+                if me:
+                    me_name = getattr(me, "first_name", None)
+                    me_last = getattr(me, "last_name", None)
+                    if me_name and me_last:
+                        me_name = f"{me_name} {me_last}"
+                is_outgoing = sender_id == session_config.telegram_id
+                receiver_name = chat_title if is_outgoing else me_name
+            else:
+                receiver_name = chat_title
+
             doc_id = f"{session_config.name}:{chat_id}:{message.id}"
             doc = MessageDocument(
                 id=doc_id,
@@ -95,7 +121,8 @@ class MessageIndexer:
                 session_name=session_config.name,
                 text=text_content,
                 sender_id=sender_id,
-                sender_name=None,
+                sender_name=sender_name,
+                receiver_name=receiver_name,
                 date=int(message.date.timestamp()) if message.date else 0,
                 chat_title=chat_title,
             )
@@ -184,6 +211,16 @@ class MessageIndexer:
             chat_title = getattr(entity, "title", None) or getattr(
                 entity, "first_name", None
             )
+            is_private_chat = isinstance(entity, TelegramUser)
+
+            # Get session user's display name for private chat direction resolution
+            me = await client.get_me()
+            me_name = None
+            if me:
+                me_name = getattr(me, "first_name", None)
+                me_last = getattr(me, "last_name", None)
+                if me_name and me_last:
+                    me_name = f"{me_name} {me_last}"
 
             # Get the numeric chat ID for indexing
             # entity.id is always available for all entity types
@@ -286,9 +323,22 @@ class MessageIndexer:
                             or getattr(message.from_id, "chat_id", None)
                         )
 
-                    # Skip fetching sender name - it can be slow and cause rate limiting
-                    # We already have sender_id which is more reliable
+                    # Get sender name from cached entity (no extra API call)
                     sender_name = None
+                    if message.sender:
+                        sender_name = getattr(
+                            message.sender, "first_name", None
+                        ) or getattr(message.sender, "title", None)
+                        last_name = getattr(message.sender, "last_name", None)
+                        if sender_name and last_name:
+                            sender_name = f"{sender_name} {last_name}"
+
+                    # Compute receiver_name based on chat type and message direction
+                    if is_private_chat:
+                        is_outgoing = sender_id == session_config.telegram_id
+                        receiver_name = chat_title if is_outgoing else me_name
+                    else:
+                        receiver_name = chat_title
 
                     # Create document
                     doc = MessageDocument(
@@ -299,6 +349,7 @@ class MessageIndexer:
                         text=text_content,
                         sender_id=sender_id,
                         sender_name=sender_name,
+                        receiver_name=receiver_name,
                         date=int(message.date.timestamp()) if message.date else 0,
                         chat_title=chat_title,
                     )
