@@ -124,13 +124,18 @@ class SearchBot:
                 date = datetime.fromtimestamp(result["date"])
                 date_str = date.strftime("%Y-%m-%d %H:%M")
 
-                # Format sender info
-                sender_info = result.get("sender_name") or "Unknown"
-
-                # Format receiver info
-                receiver_info = (
+                # Format sender/receiver info
+                sender_name = result.get("sender_name") or "Unknown"
+                receiver_name = (
                     result.get("receiver_name") or result.get("chat_title") or "Unknown"
                 )
+
+                # For channels, sender and receiver are the same (the channel name)
+                # Just show the channel name once
+                if sender_name == receiver_name:
+                    who_info = sender_name
+                else:
+                    who_info = f"{sender_name} → {receiver_name}"
 
                 # Get message text (full or preview)
                 text = result["text"]
@@ -138,7 +143,7 @@ class SearchBot:
                     text = text[:197] + "..."
 
                 response += (
-                    f"📅 {date_str}\n👤 {sender_info} → {receiver_info}\n\n{text}\n"
+                    f"📅 {date_str}\n👤 {who_info}\n\n{text}\n"
                 )
 
                 # Add separator between results, but not after the last one
