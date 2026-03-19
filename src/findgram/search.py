@@ -208,6 +208,18 @@ class TantivySearchManager:
 
         return response_time
 
+    def document_exists(self, doc_id: str) -> bool:
+        """Check if a document with the given ID exists in the index."""
+        if not self.index:
+            return False
+        try:
+            searcher = self.index.searcher()
+            query = self.index.parse_query(f'"{doc_id}"', ["id"])
+            result = searcher.search(query, 1)
+            return len(result.hits) > 0
+        except Exception:
+            return False
+
     def search(
         self, query: str, limit: int = 20, filters: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:

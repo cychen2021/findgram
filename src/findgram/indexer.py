@@ -313,6 +313,21 @@ class MessageIndexer:
                     # Create document ID
                     doc_id = f"{session_config.name}:{numeric_chat_id}:{message.id}"
 
+                    # Since messages are iterated newest-to-oldest, if we hit
+                    # an already-indexed message, all older ones are also indexed.
+                    if self.search_manager.document_exists(doc_id):
+                        logger.info(
+                            "Indexing Chat",
+                            f"[{session_config.name}] Found existing message {message.id} in chat {chat_id}, skipping rest",
+                        )
+                        # Index any pending batch before stopping
+                        if messages_batch:
+                            await self.search_manager.index_messages(
+                                messages_batch, index=index
+                            )
+                            messages_batch = []
+                        break
+
                     # Get sender ID from from_id attribute (fast, no API call)
                     sender_id = None
                     if hasattr(message, "from_id") and message.from_id:
