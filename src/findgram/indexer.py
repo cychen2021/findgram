@@ -31,11 +31,16 @@ class MessageIndexer:
         logger.info("Indexing", f"Starting indexing for session: {session_config.name}")
 
         total_indexed = 0
+        resolved_chat_ids: list[int] = []
 
         for chat_id in session_config.included_chats:
             try:
-                count = await self._index_chat(client, session_config, chat_id)
+                count, numeric_id = await self._index_chat(
+                    client, session_config, chat_id
+                )
                 total_indexed += count
+                if numeric_id is not None:
+                    resolved_chat_ids.append(numeric_id)
             except Exception as e:
                 logger.error(
                     "Indexing Error",
@@ -47,87 +52,98 @@ class MessageIndexer:
             f"✓ Session '{session_config.name}' is now searchable ({total_indexed} messages indexed)",
         )
 
-        # Start listening for new messages on this session
-        self._register_new_message_handler(client, session_config)
+        # Start listening for new messages on this session using resolved numeric IDs
+        if resolved_chat_ids:
+            self._register_new_message_handler(
+                client, session_config, resolved_chat_ids
+            )
+        else:
+            logger.warning(
+                "Live Index",
+                f"[{session_config.name}] No chats resolved, skipping live message handler",
+            )
 
     def _register_new_message_handler(
-        self, client: TelegramClient, session_config: SessionConfig
+        self,
+        client: TelegramClient,
+        session_config: SessionConfig,
+        resolved_chat_ids: list[int],
     ) -> None:
-        """Register a handler to index new incoming messages for a session."""
-        # Resolve included chat IDs to a set for fast lookup
-        # Note: string usernames won't match numeric chat IDs from events,
-        # so we resolve them during initial indexing and store numeric IDs.
-        included_chats = session_config.included_chats
+        """Register a handler to index new incoming and outgoing messages for a session.
 
-        @client.on(events.NewMessage(chats=included_chats))
+        Args:
+            client: The Telegram user client for this session.
+            session_config: Configuration for this session.
+            resolved_chat_ids: Numeric (bare) chat IDs resolved during initial indexing.
+        """
+
+        @client.on(events.NewMessage(chats=resolved_chat_ids))
         async def new_message_handler(event: events.NewMessage.Event) -> None:
-            message = event.message
-            if not isinstance(message, Message):
-                return
-
-            text_content = message.message if hasattr(message, "message") else None
-            if not text_content:
-                return
-
-            # Get numeric chat ID
-            chat_id = event.chat_id
-
-            # Get chat title
-            chat = await event.get_chat()
-            chat_title = getattr(chat, "title", None) or getattr(
-                chat, "first_name", None
-            )
-            is_private_chat = isinstance(chat, TelegramUser)
-
-            # Get sender ID
-            sender_id = None
-            if hasattr(message, "from_id") and message.from_id:
-                sender_id = (
-                    getattr(message.from_id, "user_id", None)
-                    or getattr(message.from_id, "channel_id", None)
-                    or getattr(message.from_id, "chat_id", None)
-                )
-
-            # Get sender name
-            sender_name = None
-            sender = await message.get_sender()
-            if sender:
-                sender_name = getattr(sender, "first_name", None) or getattr(
-                    sender, "title", None
-                )
-                last_name = getattr(sender, "last_name", None)
-                if sender_name and last_name:
-                    sender_name = f"{sender_name} {last_name}"
-
-            # Compute receiver_name based on chat type and message direction
-            if is_private_chat:
-                me = await client.get_me()
-                me_name = None
-                if me:
-                    me_name = getattr(me, "first_name", None)
-                    me_last = getattr(me, "last_name", None)
-                    if me_name and me_last:
-                        me_name = f"{me_name} {me_last}"
-                is_outgoing = sender_id == session_config.telegram_id
-                receiver_name = chat_title if is_outgoing else me_name
-            else:
-                receiver_name = chat_title
-
-            doc_id = f"{session_config.name}:{chat_id}:{message.id}"
-            doc = MessageDocument(
-                id=doc_id,
-                chat_id=chat_id,
-                message_id=message.id,
-                session_name=session_config.name,
-                text=text_content,
-                sender_id=sender_id,
-                sender_name=sender_name,
-                receiver_name=receiver_name,
-                date=int(message.date.timestamp()) if message.date else 0,
-                chat_title=chat_title,
-            )
-
             try:
+                message = event.message
+                if not isinstance(message, Message):
+                    return
+
+                text_content = message.message if hasattr(message, "message") else None
+                if not text_content:
+                    return
+
+                # Get chat entity to extract bare ID (consistent with bulk indexing)
+                chat = await event.get_chat()
+                chat_id = chat.id  # bare form, matches entity.id used in bulk indexing
+                chat_title = getattr(chat, "title", None) or getattr(
+                    chat, "first_name", None
+                )
+                is_private_chat = isinstance(chat, TelegramUser)
+
+                # Get sender ID
+                sender_id = None
+                if hasattr(message, "from_id") and message.from_id:
+                    sender_id = (
+                        getattr(message.from_id, "user_id", None)
+                        or getattr(message.from_id, "channel_id", None)
+                        or getattr(message.from_id, "chat_id", None)
+                    )
+
+                # Get sender name
+                sender_name = None
+                sender = await message.get_sender()
+                if sender:
+                    sender_name = getattr(sender, "first_name", None) or getattr(
+                        sender, "title", None
+                    )
+                    last_name = getattr(sender, "last_name", None)
+                    if sender_name and last_name:
+                        sender_name = f"{sender_name} {last_name}"
+
+                # Compute receiver_name based on chat type and message direction
+                if is_private_chat:
+                    me = await client.get_me()
+                    me_name = None
+                    if me:
+                        me_name = getattr(me, "first_name", None)
+                        me_last = getattr(me, "last_name", None)
+                        if me_name and me_last:
+                            me_name = f"{me_name} {me_last}"
+                    is_outgoing = sender_id == session_config.telegram_id
+                    receiver_name = chat_title if is_outgoing else me_name
+                else:
+                    receiver_name = chat_title
+
+                doc_id = f"{session_config.name}:{chat_id}:{message.id}"
+                doc = MessageDocument(
+                    id=doc_id,
+                    chat_id=chat_id,
+                    message_id=message.id,
+                    session_name=session_config.name,
+                    text=text_content,
+                    sender_id=sender_id,
+                    sender_name=sender_name,
+                    receiver_name=receiver_name,
+                    date=int(message.date.timestamp()) if message.date else 0,
+                    chat_title=chat_title,
+                )
+
                 await self.search_manager.index_messages([doc])
                 logger.info(
                     "Live Index",
@@ -136,18 +152,23 @@ class MessageIndexer:
             except Exception as e:
                 logger.error(
                     "Live Index Error",
-                    f"[{session_config.name}] Failed to index new message {message.id}: {e}",
+                    f"[{session_config.name}] Failed to handle new message: {e}",
                 )
 
         logger.info(
             "Live Index",
-            f"[{session_config.name}] Registered new message handler for {len(included_chats)} chats",
+            f"[{session_config.name}] Registered new message handler for {len(resolved_chat_ids)} chats",
         )
 
     async def _index_chat(
         self, client: TelegramClient, session_config: SessionConfig, chat_id: int | str
-    ) -> int:
-        """Index all messages from a single chat (supports both numeric IDs and usernames)."""
+    ) -> tuple[int, int | None]:
+        """Index all messages from a single chat (supports both numeric IDs and usernames).
+
+        Returns:
+            Tuple of (processed_count, numeric_chat_id). numeric_chat_id is None if
+            the entity could not be resolved.
+        """
         logger.info("Indexing Chat", f"[{session_config.name}] Starting chat {chat_id}")
 
         batch_size = 400  # Fixed batch size
@@ -157,6 +178,7 @@ class MessageIndexer:
         first_message_id = None
         current_message_id = None
         index = None  # MeiliSearch index object
+        numeric_chat_id: int | None = None
 
         # AIMD rate limiting for Telegram API
         telegram_delay = 0.05  # Start with 50ms delay
@@ -224,7 +246,7 @@ class MessageIndexer:
 
             # Get the numeric chat ID for indexing
             # entity.id is always available for all entity types
-            numeric_chat_id: int = entity.id
+            numeric_chat_id = entity.id
 
             logger.info(
                 "Indexing Chat",
@@ -463,7 +485,7 @@ class MessageIndexer:
                 "Indexing Complete",
                 f"[{session_config.name}] Chat {chat_id}: Processed {processed_count} text messages, index now has {final_doc_count} documents (+{new_docs})",
             )
-            return processed_count
+            return processed_count, numeric_chat_id
 
         except FloodWaitError as e:
             logger.error(
@@ -478,7 +500,7 @@ class MessageIndexer:
                     )
                 except Exception:
                     pass  # Best effort
-            return processed_count
+            return processed_count, numeric_chat_id
         except Exception as e:
             logger.error(
                 "Indexing Error",
@@ -495,7 +517,7 @@ class MessageIndexer:
                     )
                 except Exception:
                     pass  # Best effort
-            return processed_count
+            return processed_count, numeric_chat_id
 
     async def index_all_sessions(self, clients: dict[str, TelegramClient]) -> None:
         """Index all messages from all sessions."""
