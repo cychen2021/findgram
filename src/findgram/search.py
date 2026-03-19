@@ -234,7 +234,14 @@ class TantivySearchManager:
         tokenized_parts = []
         for part in parts:
             tokens = list(jieba.cut_for_search(part))
-            tokens = [t.strip() for t in tokens if t.strip()]
+            # Keep only tokens containing at least one alphanumeric or CJK character
+            # to avoid passing punctuation/symbols to Tantivy's query parser
+            tokens = [
+                t.strip()
+                for t in tokens
+                if t.strip()
+                and any(c.isalnum() or "\u4e00" <= c <= "\u9fff" for c in t)
+            ]
             if tokens:
                 tokenized_parts.append("(" + " AND ".join(tokens) + ")")
 

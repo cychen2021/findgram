@@ -56,9 +56,28 @@ class SearchBot:
             if query:
                 await self._handle_search(event, query)
 
+    def _parse_query_flags(self, query: str) -> tuple[str, bool]:
+        """Parse special flags from the query string.
+
+        Returns (cleaned_query, full_text).
+        Flags: +full (show full text), -full (show preview).
+        """
+        full_text = self.config.search.full_text
+        parts = query.split()
+        cleaned = []
+        for part in parts:
+            if part == "toggle_on:full":
+                full_text = True
+            elif part == "toggle_off:full":
+                full_text = False
+            else:
+                cleaned.append(part)
+        return " ".join(cleaned), full_text
+
     async def _handle_search(self, event: events.NewMessage.Event, query: str) -> None:
         """Handle a search query."""
-        logger.info("Search", f"Query: {query}")
+        query, full_text = self._parse_query_flags(query)
+        logger.info("Search", f"Query: {query}, full_text: {full_text}")
 
         try:
             # Get the user's telegram_id
@@ -113,9 +132,9 @@ class SearchBot:
                     result.get("receiver_name") or result.get("chat_title") or "Unknown"
                 )
 
-                # Get text preview (limit to 200 chars)
+                # Get message text (full or preview)
                 text = result["text"]
-                if len(text) > 200:
+                if not full_text and len(text) > 200:
                     text = text[:197] + "..."
 
                 response += (

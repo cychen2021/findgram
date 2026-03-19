@@ -25,6 +25,7 @@ class SearchConfig:
     """Search engine configuration."""
 
     index_path: str | None = None  # If None, uses default data dir
+    full_text: bool = False  # Show complete message text in results by default
 
 
 @dataclass
@@ -92,6 +93,7 @@ def load_config() -> Config:
     search_data = config_data.get("search", {})
     search = SearchConfig(
         index_path=search_data.get("index_path"),
+        full_text=search_data.get("full_text", False),
     )
 
     # Parse sessions
