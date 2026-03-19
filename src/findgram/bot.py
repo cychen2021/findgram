@@ -5,6 +5,7 @@ from datetime import datetime
 from phdkit.log import Logger, LogOutput
 from telethon import TelegramClient, events
 
+from .config import Config
 from .search import TantivySearchManager
 
 logger = Logger(__name__, outputs=[LogOutput.stdout()])
@@ -14,10 +15,14 @@ class SearchBot:
     """Handles search queries from users."""
 
     def __init__(
-        self, bot_client: TelegramClient, search_manager: TantivySearchManager
+        self,
+        bot_client: TelegramClient,
+        search_manager: TantivySearchManager,
+        config: Config,
     ):
         self.bot_client = bot_client
         self.search_manager = search_manager
+        self.config = config
 
     def setup_handlers(self) -> None:
         """Setup message handlers for the bot."""
@@ -56,8 +61,37 @@ class SearchBot:
         logger.info("Search", f"Query: {query}")
 
         try:
+            # Get the user's telegram_id
+            user_id = event.sender_id
+            logger.info("Search", f"User telegram_id: {user_id}")
+
+            # Find which session this user belongs to
+            user_session = None
+            for session in self.config.sessions:
+                logger.info(
+                    "Search",
+                    f"Checking session: {session.name} (telegram_id: {session.telegram_id})",
+                )
+                if session.telegram_id == user_id:
+                    user_session = session.name
+                    logger.info("Search", f"✓ Matched session: {user_session}")
+                    break
+
+            # Build filters
+            filters = {}
+            if user_session:
+                filters["session_name"] = user_session
+                logger.info("Search", f"Filtering results for session: {user_session}")
+            else:
+                logger.warning(
+                    "Search",
+                    f"User {user_id} not found in any session, searching all sessions",
+                )
+
             # Perform search
-            results = self.search_manager.search(query, limit=10)
+            results = self.search_manager.search(
+                query, limit=10, filters=filters if filters else None
+            )
 
             if not results:
                 await event.respond("No results found.")

@@ -100,7 +100,7 @@ def load_config() -> Config:
         sessions.append(
             SessionConfig(
                 name=session_data["name"],
-                telegram_id=session_data["telegram_id"],
+                telegram_id=int(session_data["telegram_id"]),
                 included_chats=session_data["included_chats"],
             )
         )

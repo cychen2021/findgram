@@ -63,7 +63,12 @@ class TantivySearchManager:
         schema_builder.add_integer_field("chat_id", stored=True, indexed=True)
         schema_builder.add_integer_field("message_id", stored=True)
         schema_builder.add_text_field("session_name", stored=True, tokenizer_name="raw")
-        schema_builder.add_text_field("text", stored=True, tokenizer_name="default")
+        schema_builder.add_text_field(
+            "text", stored=False, tokenizer_name="default"
+        )  # Tokenized for search only
+        schema_builder.add_text_field(
+            "text_original", stored=True, tokenizer_name="raw"
+        )  # Original text for display
         schema_builder.add_integer_field("sender_id", stored=True, indexed=True)
         schema_builder.add_text_field(
             "sender_name", stored=True, tokenizer_name="default"
@@ -167,7 +172,8 @@ class TantivySearchManager:
                 doc.add_integer("chat_id", msg.chat_id)
                 doc.add_integer("message_id", msg.message_id)
                 doc.add_text("session_name", msg.session_name)
-                doc.add_text("text", tokenized_text)
+                doc.add_text("text", tokenized_text)  # Tokenized for search
+                doc.add_text("text_original", msg.text)  # Original text for display
 
                 if msg.sender_id is not None:
                     doc.add_integer("sender_id", msg.sender_id)
@@ -216,55 +222,110 @@ class TantivySearchManager:
 
         searcher = self.index.searcher()
 
-        # Tokenize query with jieba
-        tokenized_query = self._tokenize_chinese(query)
+        # Tokenize query with jieba, preserving user-intended grouping:
+        # Split by whitespace first, tokenize each part, AND tokens within each part,
+        # then OR the parts together.
+        # e.g. "印度气候 日本气候" → "(印度 AND 气候) OR (日本 AND 气候)"
+        parts = query.split()
+        tokenized_parts = []
+        for part in parts:
+            tokens = list(jieba.cut_for_search(part))
+            tokens = [t.strip() for t in tokens if t.strip()]
+            if tokens:
+                tokenized_parts.append("(" + " AND ".join(tokens) + ")")
+
+        if not tokenized_parts:
+            tokenized_query = query
+        elif len(tokenized_parts) == 1:
+            tokenized_query = tokenized_parts[0]
+        else:
+            tokenized_query = " OR ".join(tokenized_parts)
 
         # Build query string for searching text, sender_name, and chat_title fields
         query_str = f"text:({tokenized_query}) OR sender_name:({tokenized_query}) OR chat_title:({tokenized_query})"
 
-        # Apply filters if provided
+        logger.info("Search Query", f"Base query string: {query_str}")
+
+        # Parse the base query
+        parsed_query = self.index.parse_query(
+            query_str, ["text", "sender_name", "chat_title"]
+        )
+
+        # Apply filters if provided - use post-filtering on results
         if filters:
-            filter_queries = []
+            logger.info("Search Filters", f"Applying filters: {filters}")
 
-            if "chat_id" in filters:
-                filter_queries.append(f"chat_id:{filters['chat_id']}")
-
-            if "session_name" in filters:
-                filter_queries.append(f'session_name:"{filters["session_name"]}"')
-
-            if "sender_id" in filters:
-                filter_queries.append(f"sender_id:{filters['sender_id']}")
-
-            # Combine with AND
-            if filter_queries:
-                query_str = f"({query_str}) AND ({' AND '.join(filter_queries)})"
-
-        # Parse the query using index.parse_query
-        parsed_query = self.index.parse_query(query_str, ["text", "sender_name", "chat_title"])
-
-        # Search with limit
-        top_docs = searcher.search(parsed_query, limit)
+        # Search with a higher limit if we need to filter
+        search_limit = limit * 10 if filters else limit
+        search_result = searcher.search(parsed_query, search_limit)
 
         # Convert results to dict format (compatible with old interface)
         results = []
-        for score, doc_address in top_docs:
+        for score, doc_address in search_result.hits:
             doc = searcher.doc(doc_address)
             doc_dict = {}
 
-            # Extract fields from Tantivy document
-            for field_value in doc:
-                field_name = self.index.schema.get_field_name(field_value[0])
-                value = field_value[1]
+            # Extract fields from Tantivy document using the schema
+            schema = self.index.schema
 
-                # Handle different value types
-                if isinstance(value, tantivy.Document):
+            # Get all field names from schema
+            field_names = [
+                "id",
+                "chat_id",
+                "message_id",
+                "session_name",
+                "text_original",
+                "sender_id",
+                "sender_name",
+                "date",
+                "chat_title",
+            ]
+
+            for field_name in field_names:
+                try:
+                    # Get field values from document
+                    values = doc.get_all(field_name)
+                    if values:
+                        # Take the first value if multiple exist
+                        value = values[0]
+                        if field_name in ["chat_id", "message_id", "sender_id", "date"]:
+                            doc_dict[field_name] = value
+                        elif field_name == "text_original":
+                            # Return original text as "text" for compatibility
+                            doc_dict["text"] = str(value) if value is not None else None
+                        else:
+                            doc_dict[field_name] = (
+                                str(value) if value is not None else None
+                            )
+                except Exception:
+                    # Field might not exist in this document
+                    pass
+
+            # Apply post-filtering if filters provided
+            if filters:
+                match = True
+
+                if "session_name" in filters:
+                    if doc_dict.get("session_name") != filters["session_name"]:
+                        logger.info("Search Filter", f"Filtering out: session_name={doc_dict.get('session_name')} != {filters['session_name']}")
+                        match = False
+
+                if "chat_id" in filters and match:
+                    if doc_dict.get("chat_id") != filters["chat_id"]:
+                        match = False
+
+                if "sender_id" in filters and match:
+                    if doc_dict.get("sender_id") != filters["sender_id"]:
+                        match = False
+
+                if not match:
                     continue
-                elif field_name in ["chat_id", "message_id", "sender_id", "date"]:
-                    doc_dict[field_name] = value
-                else:
-                    doc_dict[field_name] = str(value)
 
             results.append(doc_dict)
+
+            # Stop if we have enough results
+            if len(results) >= limit:
+                break
 
         # Sort by date descending (newest first)
         results.sort(key=lambda x: x.get("date", 0), reverse=True)

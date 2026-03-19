@@ -54,7 +54,7 @@ class FindgramApp:
         """Run the search bot."""
         logger.info("Bot", "Starting search bot...")
 
-        bot = SearchBot(self.bot_client.get_client(), self.search_manager)
+        bot = SearchBot(self.bot_client.get_client(), self.search_manager, self.config)
         bot.setup_handlers()
 
         # Run bot
@@ -101,12 +101,32 @@ def run(no_index: bool):
         try:
             await app.setup()
 
+            # Start indexing in background if requested
+            indexing_task = None
             if not no_index:
-                await app.index_messages()
+                logger.info(
+                    "Indexing",
+                    "Starting message indexing in background (bot is ready for searches)...",
+                )
+                indexing_task = asyncio.create_task(app.index_messages())
             else:
                 logger.info("Indexing", "Skipping message indexing (--no-index)")
 
+            # Run bot (this will block until shutdown)
+            # Bot can search as soon as any session finishes indexing
+            logger.info(
+                "Bot",
+                "Bot is ready! You can search as sessions finish indexing.",
+            )
             await app.run_bot()
+
+            # If we get here, bot was stopped - wait for indexing to complete
+            if indexing_task and not indexing_task.done():
+                logger.info(
+                    "Indexing", "Waiting for background indexing to complete..."
+                )
+                await indexing_task
+
         except Exception as e:
             logger.error("Bot Error", str(e))
             await app.cleanup()
@@ -154,6 +174,55 @@ def config_info():
 
     except Exception as e:
         click.echo(f"Error loading configuration: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option(
+    "--yes",
+    is_flag=True,
+    help="Skip confirmation prompt",
+)
+def reset_index(yes: bool):
+    """Reset the search index (deletes all indexed messages)."""
+    import shutil
+    from pathlib import Path
+
+    try:
+        config = load_config()
+
+        # Get index path
+        if config.search.index_path:
+            index_path = Path(config.search.index_path)
+        else:
+            from .config import get_data_dir
+
+            index_path = get_data_dir() / "tantivy_index"
+
+        # Check if index exists
+        if not index_path.exists():
+            click.echo(f"Index does not exist at: {index_path}")
+            click.echo("Nothing to reset.")
+            return
+
+        # Confirm deletion
+        if not yes:
+            click.echo(f"This will delete the search index at: {index_path}")
+            click.echo(
+                "All indexed messages will be removed and you'll need to re-index."
+            )
+            if not click.confirm("Are you sure you want to continue?"):
+                click.echo("Aborted.")
+                return
+
+        # Delete the index directory
+        click.echo(f"Deleting index at: {index_path}")
+        shutil.rmtree(index_path)
+        click.echo("✓ Index reset successfully!")
+        click.echo("\nRun 'findgram index' or 'findgram run' to re-index messages.")
+
+    except Exception as e:
+        click.echo(f"Error resetting index: {e}", err=True)
         sys.exit(1)
 
 

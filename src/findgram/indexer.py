@@ -3,7 +3,7 @@
 import asyncio
 
 from phdkit.log import Logger, LogOutput
-from telethon import TelegramClient
+from telethon import TelegramClient, events
 from telethon.errors import FloodWaitError
 from telethon.tl.types import Message
 
@@ -44,7 +44,77 @@ class MessageIndexer:
 
         logger.info(
             "Indexing",
-            f"Finished indexing session {session_config.name}: {total_indexed} messages",
+            f"✓ Session '{session_config.name}' is now searchable ({total_indexed} messages indexed)",
+        )
+
+        # Start listening for new messages on this session
+        self._register_new_message_handler(client, session_config)
+
+    def _register_new_message_handler(
+        self, client: TelegramClient, session_config: SessionConfig
+    ) -> None:
+        """Register a handler to index new incoming messages for a session."""
+        # Resolve included chat IDs to a set for fast lookup
+        # Note: string usernames won't match numeric chat IDs from events,
+        # so we resolve them during initial indexing and store numeric IDs.
+        included_chats = session_config.included_chats
+
+        @client.on(events.NewMessage(chats=included_chats))
+        async def new_message_handler(event: events.NewMessage.Event) -> None:
+            message = event.message
+            if not isinstance(message, Message):
+                return
+
+            text_content = message.message if hasattr(message, "message") else None
+            if not text_content:
+                return
+
+            # Get numeric chat ID
+            chat_id = event.chat_id
+
+            # Get chat title
+            chat = await event.get_chat()
+            chat_title = getattr(chat, "title", None) or getattr(
+                chat, "first_name", None
+            )
+
+            # Get sender ID
+            sender_id = None
+            if hasattr(message, "from_id") and message.from_id:
+                sender_id = (
+                    getattr(message.from_id, "user_id", None)
+                    or getattr(message.from_id, "channel_id", None)
+                    or getattr(message.from_id, "chat_id", None)
+                )
+
+            doc_id = f"{session_config.name}:{chat_id}:{message.id}"
+            doc = MessageDocument(
+                id=doc_id,
+                chat_id=chat_id,
+                message_id=message.id,
+                session_name=session_config.name,
+                text=text_content,
+                sender_id=sender_id,
+                sender_name=None,
+                date=int(message.date.timestamp()) if message.date else 0,
+                chat_title=chat_title,
+            )
+
+            try:
+                await self.search_manager.index_messages([doc])
+                logger.info(
+                    "Live Index",
+                    f"[{session_config.name}] Indexed new message {message.id} in chat {chat_id}",
+                )
+            except Exception as e:
+                logger.error(
+                    "Live Index Error",
+                    f"[{session_config.name}] Failed to index new message {message.id}: {e}",
+                )
+
+        logger.info(
+            "Live Index",
+            f"[{session_config.name}] Registered new message handler for {len(included_chats)} chats",
         )
 
     async def _index_chat(
