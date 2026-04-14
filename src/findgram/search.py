@@ -62,7 +62,7 @@ class TantivySearchManager:
         schema_builder = tantivy.SchemaBuilder()
         schema_builder.add_text_field("id", stored=True, tokenizer_name="raw")
         schema_builder.add_integer_field("chat_id", stored=True, indexed=True)
-        schema_builder.add_integer_field("message_id", stored=True)
+        schema_builder.add_integer_field("message_id", stored=True, indexed=True)
         schema_builder.add_text_field("session_name", stored=True, tokenizer_name="raw")
         schema_builder.add_text_field(
             "text", stored=False, tokenizer_name="default"
@@ -220,6 +220,36 @@ class TantivySearchManager:
         except Exception:
             return False
 
+    def _doc_to_dict(self, doc) -> dict[str, Any]:
+        """Convert a Tantivy document to a dict."""
+        doc_dict: dict[str, Any] = {}
+        field_names = [
+            "id",
+            "chat_id",
+            "message_id",
+            "session_name",
+            "text_original",
+            "sender_id",
+            "sender_name",
+            "receiver_name",
+            "date",
+            "chat_title",
+        ]
+        for field_name in field_names:
+            try:
+                values = doc.get_all(field_name)
+                if values:
+                    value = values[0]
+                    if field_name in ["chat_id", "message_id", "sender_id", "date"]:
+                        doc_dict[field_name] = value
+                    elif field_name == "text_original":
+                        doc_dict["text"] = str(value) if value is not None else None
+                    else:
+                        doc_dict[field_name] = str(value) if value is not None else None
+            except Exception:
+                pass
+        return doc_dict
+
     def search(
         self, query: str, limit: int = 20, filters: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
@@ -286,44 +316,7 @@ class TantivySearchManager:
         results = []
         for score, doc_address in search_result.hits:
             doc = searcher.doc(doc_address)
-            doc_dict = {}
-
-            # Extract fields from Tantivy document using the schema
-            schema = self.index.schema
-
-            # Get all field names from schema
-            field_names = [
-                "id",
-                "chat_id",
-                "message_id",
-                "session_name",
-                "text_original",
-                "sender_id",
-                "sender_name",
-                "receiver_name",
-                "date",
-                "chat_title",
-            ]
-
-            for field_name in field_names:
-                try:
-                    # Get field values from document
-                    values = doc.get_all(field_name)
-                    if values:
-                        # Take the first value if multiple exist
-                        value = values[0]
-                        if field_name in ["chat_id", "message_id", "sender_id", "date"]:
-                            doc_dict[field_name] = value
-                        elif field_name == "text_original":
-                            # Return original text as "text" for compatibility
-                            doc_dict["text"] = str(value) if value is not None else None
-                        else:
-                            doc_dict[field_name] = (
-                                str(value) if value is not None else None
-                            )
-                except Exception:
-                    # Field might not exist in this document
-                    pass
+            doc_dict = self._doc_to_dict(doc)
 
             # Apply post-filtering if filters provided
             if filters:
@@ -357,4 +350,66 @@ class TantivySearchManager:
         # Sort by date descending (newest first)
         results.sort(key=lambda x: x.get("date", 0), reverse=True)
 
+        return results
+
+    def fetch_context(
+        self, hit: dict[str, Any], context_size: int
+    ) -> list[dict[str, Any]]:
+        """Fetch context messages surrounding a search hit.
+
+        Args:
+            hit: A search result dict with chat_id, session_name, message_id.
+            context_size: Number of messages before and after to fetch.
+
+        Returns:
+            List of message dicts sorted by message_id ascending,
+            including the original hit itself.
+        """
+        if not self.index or context_size <= 0:
+            return [hit]
+
+        context_size = min(context_size, 10)
+
+        schema = self.index.schema
+        searcher = self.index.searcher()
+
+        msg_id = hit["message_id"]
+        query = tantivy.Query.boolean_query(
+            [
+                (
+                    tantivy.Occur.Must,
+                    tantivy.Query.term_query(schema, "chat_id", hit["chat_id"]),
+                ),
+                (
+                    tantivy.Occur.Must,
+                    tantivy.Query.term_query(
+                        schema,
+                        "session_name",
+                        hit["session_name"],
+                        index_option="position",
+                    ),
+                ),
+                (
+                    tantivy.Occur.Must,
+                    tantivy.Query.range_query(
+                        schema,
+                        "message_id",
+                        tantivy.FieldType.Integer,
+                        msg_id - context_size,
+                        msg_id + context_size,
+                        include_lower=True,
+                        include_upper=True,
+                    ),
+                ),
+            ]
+        )
+
+        search_result = searcher.search(query, 2 * context_size + 1)
+
+        results = []
+        for _score, doc_address in search_result.hits:
+            doc = searcher.doc(doc_address)
+            results.append(self._doc_to_dict(doc))
+
+        results.sort(key=lambda x: x.get("message_id", 0))
         return results

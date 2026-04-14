@@ -85,6 +85,7 @@ app_hash = "abcdef1234567890abcdef1234567890"
 # Search configuration (optional)
 [search]
 # index_path = "/custom/path"  # Custom index location (optional)
+# context = 0                  # Messages before/after each search hit (0-10, like grep -C)
 
 # Define each account you want to search
 [[sessions]]
@@ -132,6 +133,11 @@ On first run, you'll be prompted to authenticate each session (account) configur
 - `keyword` - Search for exact keyword
 - `multiple words` - Search for messages containing all words
 - `中文搜索` - Search in Chinese
+
+**Search flags** (add to your query):
+- `toggle_on:full` - Show full message text instead of preview
+- `toggle_off:full` - Show text preview (200 chars)
+- `context:N` - Show N messages before/after each result (max 10, like `grep -C`)
 
 ## Project Structure
 

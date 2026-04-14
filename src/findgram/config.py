@@ -26,6 +26,7 @@ class SearchConfig:
 
     index_path: str | None = None  # If None, uses default data dir
     full_text: bool = False  # Show complete message text in results by default
+    context: int = 0  # Number of messages before/after each match to include
 
 
 @dataclass
@@ -94,6 +95,7 @@ def load_config() -> Config:
     search = SearchConfig(
         index_path=search_data.get("index_path"),
         full_text=search_data.get("full_text", False),
+        context=max(0, search_data.get("context", 0)),
     )
 
     # Parse sessions
