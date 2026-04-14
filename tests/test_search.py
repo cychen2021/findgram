@@ -218,9 +218,9 @@ class TestFetchContext:
         asyncio.get_event_loop().run_until_complete(
             search_manager.index_messages(docs)
         )
-        # Hit is message 3, context_size=2 → should get messages 1-5
+        # Hit is message 3, preceding=2, subsequent=2 → should get messages 1-5
         hit = {"chat_id": 100, "session_name": "s1", "message_id": 3}
-        result = search_manager.fetch_context(hit, context_size=2)
+        result = search_manager.fetch_context(hit, preceding=2, subsequent=2)
         msg_ids = [r["message_id"] for r in result]
         assert msg_ids == [1, 2, 3, 4, 5]
 
@@ -233,9 +233,9 @@ class TestFetchContext:
         asyncio.get_event_loop().run_until_complete(
             search_manager.index_messages(docs)
         )
-        # Hit is message 5, context_size=2 → range [3, 7], existing: 5, 6, 7
+        # Hit is message 5, preceding=2, subsequent=2 → range [3, 7], existing: 5, 6, 7
         hit = {"chat_id": 100, "session_name": "s1", "message_id": 5}
-        result = search_manager.fetch_context(hit, context_size=2)
+        result = search_manager.fetch_context(hit, preceding=2, subsequent=2)
         msg_ids = [r["message_id"] for r in result]
         assert msg_ids == [5, 6, 7]
 
@@ -251,7 +251,7 @@ class TestFetchContext:
             search_manager.index_messages(docs)
         )
         hit = {"chat_id": 100, "session_name": "s1", "message_id": 2}
-        result = search_manager.fetch_context(hit, context_size=1)
+        result = search_manager.fetch_context(hit, preceding=1, subsequent=1)
         msg_ids = [r["message_id"] for r in result]
         assert msg_ids == [1, 2, 3]
         assert all(r["chat_id"] == 100 for r in result)
@@ -267,11 +267,11 @@ class TestFetchContext:
             search_manager.index_messages(docs)
         )
         hit = {"chat_id": 100, "session_name": "s1", "message_id": 2}
-        result = search_manager.fetch_context(hit, context_size=1)
+        result = search_manager.fetch_context(hit, preceding=1, subsequent=1)
         assert all(r["session_name"] == "s1" for r in result)
 
     def test_fetch_context_zero_returns_only_hit(self, search_manager):
-        """context_size=0 returns the hit as-is without querying."""
+        """preceding=0, subsequent=0 returns the hit as-is without querying."""
         hit = {"chat_id": 100, "session_name": "s1", "message_id": 5, "text": "matched"}
-        result = search_manager.fetch_context(hit, context_size=0)
+        result = search_manager.fetch_context(hit, preceding=0, subsequent=0)
         assert result == [hit]

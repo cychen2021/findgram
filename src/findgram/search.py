@@ -353,22 +353,24 @@ class TantivySearchManager:
         return results
 
     def fetch_context(
-        self, hit: dict[str, Any], context_size: int
+        self, hit: dict[str, Any], preceding: int, subsequent: int
     ) -> list[dict[str, Any]]:
         """Fetch context messages surrounding a search hit.
 
         Args:
             hit: A search result dict with chat_id, session_name, message_id.
-            context_size: Number of messages before and after to fetch.
+            preceding: Number of messages before the hit to fetch.
+            subsequent: Number of messages after the hit to fetch.
 
         Returns:
             List of message dicts sorted by message_id ascending,
             including the original hit itself.
         """
-        if not self.index or context_size <= 0:
+        if not self.index or (preceding <= 0 and subsequent <= 0):
             return [hit]
 
-        context_size = min(context_size, 10)
+        preceding = min(max(0, preceding), 10)
+        subsequent = min(max(0, subsequent), 10)
 
         schema = self.index.schema
         searcher = self.index.searcher()
@@ -395,8 +397,8 @@ class TantivySearchManager:
                         schema,
                         "message_id",
                         tantivy.FieldType.Integer,
-                        msg_id - context_size,
-                        msg_id + context_size,
+                        msg_id - preceding,
+                        msg_id + subsequent,
                         include_lower=True,
                         include_upper=True,
                     ),
@@ -404,7 +406,7 @@ class TantivySearchManager:
             ]
         )
 
-        search_result = searcher.search(query, 2 * context_size + 1)
+        search_result = searcher.search(query, preceding + subsequent + 1)
 
         results = []
         for _score, doc_address in search_result.hits:
