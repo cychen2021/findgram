@@ -375,9 +375,17 @@ class TantivySearchManager:
         subsequent = max(0, subsequent)
         total = preceding + subsequent
         if total > 20:
-            ratio = 20 / total
-            preceding = int(preceding * ratio)
-            subsequent = 20 - preceding
+            half = 20 // 2
+            if preceding <= half and subsequent <= half:
+                # Both fit in half — shouldn't reach here, but safe fallback
+                pass
+            elif preceding <= half:
+                subsequent = 20 - preceding
+            elif subsequent <= half:
+                preceding = 20 - subsequent
+            else:
+                preceding = half
+                subsequent = 20 - half
 
         schema = self.index.schema
         searcher = self.index.searcher()
