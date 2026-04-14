@@ -233,11 +233,13 @@ class TestFetchContext:
         asyncio.get_event_loop().run_until_complete(
             search_manager.index_messages(docs)
         )
-        # Hit is message 5, preceding=2, subsequent=2 → range [3, 7], existing: 5, 6, 7
+        # Hit is message 5, preceding=2, subsequent=2
+        # Preceding 2 closest: IDs 1, 2 (gap at 3, 4 doesn't matter)
+        # Subsequent 2 closest: IDs 6, 7
         hit = {"chat_id": 100, "session_name": "s1", "message_id": 5}
         result = search_manager.fetch_context(hit, preceding=2, subsequent=2)
         msg_ids = [r["message_id"] for r in result]
-        assert msg_ids == [5, 6, 7]
+        assert msg_ids == [1, 2, 5, 6, 7]
 
     def test_fetch_context_cross_chat_isolation(self, search_manager):
         """Context only returns messages from the same chat."""

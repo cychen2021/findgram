@@ -62,7 +62,9 @@ class TantivySearchManager:
         schema_builder = tantivy.SchemaBuilder()
         schema_builder.add_text_field("id", stored=True, tokenizer_name="raw")
         schema_builder.add_integer_field("chat_id", stored=True, indexed=True)
-        schema_builder.add_integer_field("message_id", stored=True, indexed=True)
+        schema_builder.add_integer_field(
+            "message_id", stored=True, indexed=True, fast=True
+        )
         schema_builder.add_text_field("session_name", stored=True, tokenizer_name="raw")
         schema_builder.add_text_field(
             "text", stored=False, tokenizer_name="default"
@@ -376,42 +378,75 @@ class TantivySearchManager:
         searcher = self.index.searcher()
 
         msg_id = hit["message_id"]
-        query = tantivy.Query.boolean_query(
-            [
-                (
-                    tantivy.Occur.Must,
-                    tantivy.Query.term_query(schema, "chat_id", hit["chat_id"]),
-                ),
-                (
-                    tantivy.Occur.Must,
-                    tantivy.Query.term_query(
-                        schema,
-                        "session_name",
-                        hit["session_name"],
-                        index_option="position",
-                    ),
-                ),
-                (
-                    tantivy.Occur.Must,
-                    tantivy.Query.range_query(
-                        schema,
-                        "message_id",
-                        tantivy.FieldType.Integer,
-                        msg_id - preceding,
-                        msg_id + subsequent,
-                        include_lower=True,
-                        include_upper=True,
-                    ),
-                ),
-            ]
-        )
 
-        search_result = searcher.search(query, preceding + subsequent + 1)
+        def _make_query(range_q: tantivy.Query) -> tantivy.Query:
+            return tantivy.Query.boolean_query(
+                [
+                    (
+                        tantivy.Occur.Must,
+                        tantivy.Query.term_query(schema, "chat_id", hit["chat_id"]),
+                    ),
+                    (
+                        tantivy.Occur.Must,
+                        tantivy.Query.term_query(
+                            schema,
+                            "session_name",
+                            hit["session_name"],
+                            index_option="position",
+                        ),
+                    ),
+                    (tantivy.Occur.Must, range_q),
+                ]
+            )
 
-        results = []
-        for _score, doc_address in search_result.hits:
-            doc = searcher.doc(doc_address)
-            results.append(self._doc_to_dict(doc))
+        results: list[dict[str, Any]] = []
+
+        # Preceding: N messages with message_id < msg_id, closest first
+        if preceding > 0:
+            q = _make_query(
+                tantivy.Query.range_query(
+                    schema,
+                    "message_id",
+                    tantivy.FieldType.Integer,
+                    0,
+                    msg_id,
+                    include_lower=True,
+                    include_upper=False,
+                )
+            )
+            sr = searcher.search(
+                q,
+                preceding,
+                order_by_field="message_id",
+                order=tantivy.Order.Desc,
+            )
+            for _score, addr in sr.hits:
+                results.append(self._doc_to_dict(searcher.doc(addr)))
+
+        # The hit itself
+        results.append(hit)
+
+        # Subsequent: N messages with message_id > msg_id, closest first
+        if subsequent > 0:
+            q = _make_query(
+                tantivy.Query.range_query(
+                    schema,
+                    "message_id",
+                    tantivy.FieldType.Integer,
+                    msg_id,
+                    2**63 - 1,
+                    include_lower=False,
+                    include_upper=True,
+                )
+            )
+            sr = searcher.search(
+                q,
+                subsequent,
+                order_by_field="message_id",
+                order=tantivy.Order.Asc,
+            )
+            for _score, addr in sr.hits:
+                results.append(self._doc_to_dict(searcher.doc(addr)))
 
         results.sort(key=lambda x: x.get("message_id", 0))
         return results

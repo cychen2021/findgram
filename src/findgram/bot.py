@@ -190,7 +190,7 @@ class SearchBot:
 
                 # Add separator between results, but not after the last one
                 if i < len(results):
-                    response += "\n─ ─ ─ ─ ─ ─ ─ ─ ─ ─\n\n"
+                    response += f"\n━━━━━ {i}/{len(results)} ━━━━━\n\n"
 
             # Split response if too long (Telegram limit is 4096 chars)
             if len(response) > 4096:
