@@ -39,8 +39,9 @@ class SearchBot:
                 "\nFlags (add to query):\n"
                 "toggle_on:full - Show full message text\n"
                 "toggle_off:full - Show text preview\n"
-                "context:N - Show N messages before and after each result\n"
-                "context:M,N - Show M messages before / N after\n"
+                "context:N - Show N messages before and after (max 10)\n"
+                "context:M,N - M before / N after\n"
+                "context:,N or context:N, - one-sided context\n"
                 "\nJust send any text to search!"
             )
 

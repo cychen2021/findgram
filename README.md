@@ -85,7 +85,8 @@ app_hash = "abcdef1234567890abcdef1234567890"
 # Search configuration (optional)
 [search]
 # index_path = "/custom/path"  # Custom index location (optional)
-# context = 0                  # Messages before/after each search hit (0-10, like grep -C)
+# preceding_context = 0         # Messages before each search hit (0-10)
+# subsequent_context = 0        # Messages after each search hit (0-10)
 
 # Define each account you want to search
 [[sessions]]
@@ -137,7 +138,9 @@ On first run, you'll be prompted to authenticate each session (account) configur
 **Search flags** (add to your query):
 - `toggle_on:full` - Show full message text instead of preview
 - `toggle_off:full` - Show text preview (200 chars)
-- `context:N` - Show N messages before/after each result (max 10, like `grep -C`)
+- `context:N` - Show N messages before and after each result (max 10)
+- `context:M,N` - Show M messages before / N after each result
+- `context:,N` or `context:N,` - One-sided context (before or after only)
 
 ## Project Structure
 
