@@ -153,6 +153,7 @@ findgram/
 - Follow PEP 8 style guidelines
 - Use type hints where applicable
 - Keep functions focused and modular
+- Format code with: `uv run format.py`
 
 ### Dependencies
 
