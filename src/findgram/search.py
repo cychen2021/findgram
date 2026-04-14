@@ -371,8 +371,13 @@ class TantivySearchManager:
         if not self.index or (preceding <= 0 and subsequent <= 0):
             return [hit]
 
-        preceding = min(max(0, preceding), 10)
-        subsequent = min(max(0, subsequent), 10)
+        preceding = max(0, preceding)
+        subsequent = max(0, subsequent)
+        total = preceding + subsequent
+        if total > 20:
+            ratio = 20 / total
+            preceding = int(preceding * ratio)
+            subsequent = 20 - preceding
 
         schema = self.index.schema
         searcher = self.index.searcher()
