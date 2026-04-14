@@ -77,7 +77,7 @@ class SearchBot:
                 full_text = False
             elif part.startswith("context:"):
                 try:
-                    context = max(0, int(part.split(":", 1)[1]))
+                    context = min(max(0, int(part.split(":", 1)[1])), 10)
                 except ValueError:
                     cleaned.append(part)
             else:
@@ -172,18 +172,20 @@ class SearchBot:
 
             # Split response if too long (Telegram limit is 4096 chars)
             if len(response) > 4096:
-                # Send in chunks
                 chunks = []
                 current_chunk = ""
-                for line in response.split("\n\n"):
-                    if len(current_chunk) + len(line) + 2 > 4096:
-                        chunks.append(current_chunk)
+                for line in response.split("\n"):
+                    candidate = current_chunk + "\n" + line if current_chunk else line
+                    if len(candidate) > 4096:
+                        if current_chunk:
+                            chunks.append(current_chunk)
+                        # Hard-split if a single line exceeds 4096
+                        while len(line) > 4096:
+                            chunks.append(line[:4096])
+                            line = line[4096:]
                         current_chunk = line
                     else:
-                        if current_chunk:
-                            current_chunk += "\n\n" + line
-                        else:
-                            current_chunk = line
+                        current_chunk = candidate
 
                 if current_chunk:
                     chunks.append(current_chunk)

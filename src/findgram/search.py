@@ -368,6 +368,8 @@ class TantivySearchManager:
         if not self.index or context_size <= 0:
             return [hit]
 
+        context_size = min(context_size, 10)
+
         schema = self.index.schema
         searcher = self.index.searcher()
 
