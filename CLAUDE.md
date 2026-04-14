@@ -76,6 +76,7 @@ app_hash = "your-app-hash"
 # Search engine configuration (optional)
 [search]
 # index_path = "/custom/path/to/index"  # If omitted, uses default data directory
+# context = 0  # Number of messages before/after each search hit (default: 0, like grep -C)
 
 # Session configuration (one per account)
 [[sessions]]

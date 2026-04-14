@@ -206,3 +206,72 @@ class TestTantivySearchManager:
         )
         results = search_manager.search("hello world")
         assert len(results) == 1
+
+
+class TestFetchContext:
+    def test_fetch_context_basic(self, search_manager):
+        """Context returns adjacent messages sorted by message_id."""
+        docs = [
+            make_doc(id=f"s1:100:{i}", message_id=i, text=f"msg {i}", date=1700000000 + i)
+            for i in range(1, 6)
+        ]
+        asyncio.get_event_loop().run_until_complete(
+            search_manager.index_messages(docs)
+        )
+        # Hit is message 3, context_size=2 → should get messages 1-5
+        hit = {"chat_id": 100, "session_name": "s1", "message_id": 3}
+        result = search_manager.fetch_context(hit, context_size=2)
+        msg_ids = [r["message_id"] for r in result]
+        assert msg_ids == [1, 2, 3, 4, 5]
+
+    def test_fetch_context_with_gaps(self, search_manager):
+        """Gaps in message_ids are handled naturally."""
+        docs = [
+            make_doc(id=f"s1:100:{i}", message_id=i, text=f"msg {i}", date=1700000000 + i)
+            for i in [1, 2, 5, 6, 7]
+        ]
+        asyncio.get_event_loop().run_until_complete(
+            search_manager.index_messages(docs)
+        )
+        # Hit is message 5, context_size=2 → range [3, 7], existing: 5, 6, 7
+        hit = {"chat_id": 100, "session_name": "s1", "message_id": 5}
+        result = search_manager.fetch_context(hit, context_size=2)
+        msg_ids = [r["message_id"] for r in result]
+        assert msg_ids == [5, 6, 7]
+
+    def test_fetch_context_cross_chat_isolation(self, search_manager):
+        """Context only returns messages from the same chat."""
+        docs = [
+            make_doc(id="s1:100:1", chat_id=100, message_id=1, text="chat A msg 1"),
+            make_doc(id="s1:100:2", chat_id=100, message_id=2, text="chat A msg 2"),
+            make_doc(id="s1:100:3", chat_id=100, message_id=3, text="chat A msg 3"),
+            make_doc(id="s1:200:2", chat_id=200, message_id=2, text="chat B msg 2"),
+        ]
+        asyncio.get_event_loop().run_until_complete(
+            search_manager.index_messages(docs)
+        )
+        hit = {"chat_id": 100, "session_name": "s1", "message_id": 2}
+        result = search_manager.fetch_context(hit, context_size=1)
+        msg_ids = [r["message_id"] for r in result]
+        assert msg_ids == [1, 2, 3]
+        assert all(r["chat_id"] == 100 for r in result)
+
+    def test_fetch_context_cross_session_isolation(self, search_manager):
+        """Context only returns messages from the same session."""
+        docs = [
+            make_doc(id="s1:100:1", session_name="s1", message_id=1, text="s1 msg 1"),
+            make_doc(id="s1:100:2", session_name="s1", message_id=2, text="s1 msg 2"),
+            make_doc(id="s2:100:2", session_name="s2", chat_id=100, message_id=2, text="s2 msg 2"),
+        ]
+        asyncio.get_event_loop().run_until_complete(
+            search_manager.index_messages(docs)
+        )
+        hit = {"chat_id": 100, "session_name": "s1", "message_id": 2}
+        result = search_manager.fetch_context(hit, context_size=1)
+        assert all(r["session_name"] == "s1" for r in result)
+
+    def test_fetch_context_zero_returns_only_hit(self, search_manager):
+        """context_size=0 returns the hit as-is without querying."""
+        hit = {"chat_id": 100, "session_name": "s1", "message_id": 5, "text": "matched"}
+        result = search_manager.fetch_context(hit, context_size=0)
+        assert result == [hit]

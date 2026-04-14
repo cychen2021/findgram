@@ -36,6 +36,10 @@ class SearchBot:
                 "Commands:\n"
                 "/start - Show this help message\n"
                 "/search <query> - Search for messages\n"
+                "\nFlags (add to query):\n"
+                "toggle_on:full - Show full message text\n"
+                "toggle_off:full - Show text preview\n"
+                "context:N - Show N messages before/after each result\n"
                 "\nJust send any text to search!"
             )
 
@@ -56,13 +60,14 @@ class SearchBot:
             if query:
                 await self._handle_search(event, query)
 
-    def _parse_query_flags(self, query: str) -> tuple[str, bool]:
+    def _parse_query_flags(self, query: str) -> tuple[str, bool, int]:
         """Parse special flags from the query string.
 
-        Returns (cleaned_query, full_text).
-        Flags: +full (show full text), -full (show preview).
+        Returns (cleaned_query, full_text, context).
+        Flags: toggle_on:full, toggle_off:full, context:N.
         """
         full_text = self.config.search.full_text
+        context = self.config.search.context
         parts = query.split()
         cleaned = []
         for part in parts:
@@ -70,14 +75,19 @@ class SearchBot:
                 full_text = True
             elif part == "toggle_off:full":
                 full_text = False
+            elif part.startswith("context:"):
+                try:
+                    context = max(0, int(part.split(":", 1)[1]))
+                except ValueError:
+                    cleaned.append(part)
             else:
                 cleaned.append(part)
-        return " ".join(cleaned), full_text
+        return " ".join(cleaned), full_text, context
 
     async def _handle_search(self, event: events.NewMessage.Event, query: str) -> None:
         """Handle a search query."""
-        query, full_text = self._parse_query_flags(query)
-        logger.info("Search", f"Query: {query}, full_text: {full_text}")
+        query, full_text, context = self._parse_query_flags(query)
+        logger.info("Search", f"Query: {query}, full_text: {full_text}, context: {context}")
 
         try:
             # Get the user's telegram_id
@@ -120,29 +130,40 @@ class SearchBot:
             response = f"🔍 Found {len(results)} results for: {query}\n\n"
 
             for i, result in enumerate(results, 1):
-                # Format date
-                date = datetime.fromtimestamp(result["date"])
-                date_str = date.strftime("%Y-%m-%d %H:%M")
-
-                # Format sender/receiver info
-                sender_name = result.get("sender_name") or "Unknown"
-                receiver_name = (
-                    result.get("receiver_name") or result.get("chat_title") or "Unknown"
-                )
-
-                # For channels, sender and receiver are the same (the channel name)
-                # Just show the channel name once
-                if sender_name == receiver_name:
-                    who_info = sender_name
+                # Fetch context messages if requested
+                if context > 0:
+                    context_msgs = self.search_manager.fetch_context(result, context)
                 else:
-                    who_info = f"{sender_name} → {receiver_name}"
+                    context_msgs = [result]
 
-                # Get message text (full or preview)
-                text = result["text"]
-                if not full_text and len(text) > 200:
-                    text = text[:197] + "..."
+                for msg in context_msgs:
+                    is_match = (
+                        msg.get("message_id") == result["message_id"]
+                        and msg.get("session_name") == result.get("session_name")
+                    )
 
-                response += f"📅 {date_str}\n👤 {who_info}\n\n{text}\n"
+                    date = datetime.fromtimestamp(msg["date"])
+                    date_str = date.strftime("%Y-%m-%d %H:%M")
+                    sender_name = msg.get("sender_name") or "Unknown"
+
+                    text = msg.get("text") or ""
+                    if not full_text and len(text) > 200:
+                        text = text[:197] + "..."
+
+                    if is_match:
+                        receiver_name = (
+                            msg.get("receiver_name")
+                            or msg.get("chat_title")
+                            or "Unknown"
+                        )
+                        if sender_name == receiver_name:
+                            who_info = sender_name
+                        else:
+                            who_info = f"{sender_name} → {receiver_name}"
+
+                        response += f"📅 {date_str}\n👤 {who_info}\n\n{text}\n"
+                    else:
+                        response += f"  │ {date_str} {sender_name}: {text}\n"
 
                 # Add separator between results, but not after the last one
                 if i < len(results):
