@@ -182,10 +182,10 @@ class SearchBot:
                         else:
                             who_info = f"{sender_name} → {receiver_name}"
 
-                        response += f"📅 {date_str}\n👤 {who_info}\n\n{text}\n"
+                        response += f"🎯 {date_str}\n👤 {who_info}\n\n{text}\n"
                     else:
                         is_before = msg.get("message_id", 0) < match_msg_id
-                        prefix = "↑" if is_before else "↓"
+                        prefix = "⬆️" if is_before else "⬇️"
                         response += f"  {prefix} {date_str} {sender_name}: {text}\n"
 
                 # Add separator between results, but not after the last one
