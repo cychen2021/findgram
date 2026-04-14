@@ -39,7 +39,8 @@ class SearchBot:
                 "\nFlags (add to query):\n"
                 "toggle_on:full - Show full message text\n"
                 "toggle_off:full - Show text preview\n"
-                "context:N - Show N messages before/after each result\n"
+                "context:N - Show N messages before and after each result\n"
+                "context:M,N - Show M messages before / N after\n"
                 "\nJust send any text to search!"
             )
 
@@ -60,14 +61,15 @@ class SearchBot:
             if query:
                 await self._handle_search(event, query)
 
-    def _parse_query_flags(self, query: str) -> tuple[str, bool, int]:
+    def _parse_query_flags(self, query: str) -> tuple[str, bool, int, int]:
         """Parse special flags from the query string.
 
-        Returns (cleaned_query, full_text, context).
-        Flags: toggle_on:full, toggle_off:full, context:N.
+        Returns (cleaned_query, full_text, preceding_context, subsequent_context).
+        Flags: toggle_on:full, toggle_off:full, context:N, context:M,N.
         """
         full_text = self.config.search.full_text
-        context = self.config.search.context
+        preceding = self.config.search.preceding_context
+        subsequent = self.config.search.subsequent_context
         parts = query.split()
         cleaned = []
         for part in parts:
@@ -76,19 +78,28 @@ class SearchBot:
             elif part == "toggle_off:full":
                 full_text = False
             elif part.startswith("context:"):
+                raw = part.split(":", 1)[1]
                 try:
-                    context = min(max(0, int(part.split(":", 1)[1])), 10)
+                    if "," in raw:
+                        left, right = raw.split(",", 1)
+                        preceding = min(max(0, int(left)), 10) if left else 0
+                        subsequent = min(max(0, int(right)), 10) if right else 0
+                    else:
+                        val = min(max(0, int(raw)), 10)
+                        preceding = val
+                        subsequent = val
                 except ValueError:
                     cleaned.append(part)
             else:
                 cleaned.append(part)
-        return " ".join(cleaned), full_text, context
+        return " ".join(cleaned), full_text, preceding, subsequent
 
     async def _handle_search(self, event: events.NewMessage.Event, query: str) -> None:
         """Handle a search query."""
-        query, full_text, context = self._parse_query_flags(query)
+        query, full_text, preceding, subsequent = self._parse_query_flags(query)
         logger.info(
-            "Search", f"Query: {query}, full_text: {full_text}, context: {context}"
+            "Search",
+            f"Query: {query}, full_text: {full_text}, preceding: {preceding}, subsequent: {subsequent}",
         )
 
         try:
@@ -131,17 +142,25 @@ class SearchBot:
             # Format results
             response = f"🔍 Found {len(results)} results for: {query}\n\n"
 
+            has_context = preceding > 0 or subsequent > 0
+
             for i, result in enumerate(results, 1):
                 # Fetch context messages if requested
-                if context > 0:
-                    context_msgs = self.search_manager.fetch_context(result, context)
+                if has_context:
+                    context_msgs = self.search_manager.fetch_context(
+                        result, preceding, subsequent
+                    )
                 else:
                     context_msgs = [result]
 
+                match_msg_id = result["message_id"]
+                match_session = result.get("session_name")
+
                 for msg in context_msgs:
-                    is_match = msg.get("message_id") == result[
-                        "message_id"
-                    ] and msg.get("session_name") == result.get("session_name")
+                    is_match = (
+                        msg.get("message_id") == match_msg_id
+                        and msg.get("session_name") == match_session
+                    )
 
                     date = datetime.fromtimestamp(msg["date"])
                     date_str = date.strftime("%Y-%m-%d %H:%M")
@@ -164,7 +183,9 @@ class SearchBot:
 
                         response += f"📅 {date_str}\n👤 {who_info}\n\n{text}\n"
                     else:
-                        response += f"  │ {date_str} {sender_name}: {text}\n"
+                        is_before = msg.get("message_id", 0) < match_msg_id
+                        prefix = "↑" if is_before else "↓"
+                        response += f"  {prefix} {date_str} {sender_name}: {text}\n"
 
                 # Add separator between results, but not after the last one
                 if i < len(results):

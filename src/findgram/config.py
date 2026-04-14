@@ -26,7 +26,8 @@ class SearchConfig:
 
     index_path: str | None = None  # If None, uses default data dir
     full_text: bool = False  # Show complete message text in results by default
-    context: int = 0  # Number of messages before/after each match to include
+    preceding_context: int = 0  # Number of messages before each match to include
+    subsequent_context: int = 0  # Number of messages after each match to include
 
 
 @dataclass
@@ -92,10 +93,13 @@ def load_config() -> Config:
 
     # Parse search config
     search_data = config_data.get("search", {})
+    # Support both new split keys and old unified 'context' key
+    fallback = max(0, search_data.get("context", 0))
     search = SearchConfig(
         index_path=search_data.get("index_path"),
         full_text=search_data.get("full_text", False),
-        context=max(0, search_data.get("context", 0)),
+        preceding_context=max(0, search_data.get("preceding_context", fallback)),
+        subsequent_context=max(0, search_data.get("subsequent_context", fallback)),
     )
 
     # Parse sessions
