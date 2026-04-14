@@ -87,7 +87,9 @@ class SearchBot:
     async def _handle_search(self, event: events.NewMessage.Event, query: str) -> None:
         """Handle a search query."""
         query, full_text, context = self._parse_query_flags(query)
-        logger.info("Search", f"Query: {query}, full_text: {full_text}, context: {context}")
+        logger.info(
+            "Search", f"Query: {query}, full_text: {full_text}, context: {context}"
+        )
 
         try:
             # Get the user's telegram_id
@@ -137,10 +139,9 @@ class SearchBot:
                     context_msgs = [result]
 
                 for msg in context_msgs:
-                    is_match = (
-                        msg.get("message_id") == result["message_id"]
-                        and msg.get("session_name") == result.get("session_name")
-                    )
+                    is_match = msg.get("message_id") == result[
+                        "message_id"
+                    ] and msg.get("session_name") == result.get("session_name")
 
                     date = datetime.fromtimestamp(msg["date"])
                     date_str = date.strftime("%Y-%m-%d %H:%M")

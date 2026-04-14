@@ -245,9 +245,7 @@ class TantivySearchManager:
                     elif field_name == "text_original":
                         doc_dict["text"] = str(value) if value is not None else None
                     else:
-                        doc_dict[field_name] = (
-                            str(value) if value is not None else None
-                        )
+                        doc_dict[field_name] = str(value) if value is not None else None
             except Exception:
                 pass
         return doc_dict
@@ -374,20 +372,35 @@ class TantivySearchManager:
         searcher = self.index.searcher()
 
         msg_id = hit["message_id"]
-        query = tantivy.Query.boolean_query([
-            (tantivy.Occur.Must, tantivy.Query.term_query(
-                schema, "chat_id", hit["chat_id"]
-            )),
-            (tantivy.Occur.Must, tantivy.Query.term_query(
-                schema, "session_name", hit["session_name"],
-                index_option="position"
-            )),
-            (tantivy.Occur.Must, tantivy.Query.range_query(
-                schema, "message_id", tantivy.FieldType.Integer,
-                msg_id - context_size, msg_id + context_size,
-                include_lower=True, include_upper=True,
-            )),
-        ])
+        query = tantivy.Query.boolean_query(
+            [
+                (
+                    tantivy.Occur.Must,
+                    tantivy.Query.term_query(schema, "chat_id", hit["chat_id"]),
+                ),
+                (
+                    tantivy.Occur.Must,
+                    tantivy.Query.term_query(
+                        schema,
+                        "session_name",
+                        hit["session_name"],
+                        index_option="position",
+                    ),
+                ),
+                (
+                    tantivy.Occur.Must,
+                    tantivy.Query.range_query(
+                        schema,
+                        "message_id",
+                        tantivy.FieldType.Integer,
+                        msg_id - context_size,
+                        msg_id + context_size,
+                        include_lower=True,
+                        include_upper=True,
+                    ),
+                ),
+            ]
+        )
 
         search_result = searcher.search(query, 2 * context_size + 1)
 
