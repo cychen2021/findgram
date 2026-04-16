@@ -169,8 +169,9 @@ findgram/
 
 ### Commits
 
-- Follow conventional commit format: `type: description`
-- Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
+- Use imperative mood with a capitalized first word: `Verb rest of description`
+- Examples: `Fix duplicate message indexing on restart`, `Add query flag parsing and full text option`
+- For non-trivial changes, include a body separated by a blank line with bullet points (`- `) describing specific changes
 
 ## Bot Operations
 
