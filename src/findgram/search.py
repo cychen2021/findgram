@@ -2,12 +2,15 @@
 
 import asyncio
 import time
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import jieba
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", SyntaxWarning)
+    import jieba
 import tantivy
 from phdkit.log import Logger, LogOutput
 
